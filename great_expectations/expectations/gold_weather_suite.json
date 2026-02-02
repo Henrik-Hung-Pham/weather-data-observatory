@@ -1,0 +1,87 @@
+{
+    "expectation_suite_name": "gold_weather_suite",
+    "expectations": [
+        {
+            "expectation_type": "expect_column_to_exist",
+            "kwargs": {
+                "column": "city"
+            },
+            "meta": {}
+        },
+        {
+            "expectation_type": "expect_column_to_exist",
+            "kwargs": {
+                "column": "country"
+            },
+            "meta": {}
+        },
+        {
+            "expectation_type": "expect_column_to_exist",
+            "kwargs": {
+                "column": "temperature_celsius"
+            },
+            "meta": {}
+        },
+        {
+            "expectation_type": "expect_column_values_to_not_be_null",
+            "kwargs": {
+                "column": "city"
+            },
+            "meta": {}
+        },
+        {
+            "expectation_type": "expect_column_values_to_not_be_null",
+            "kwargs": {
+                "column": "temperature_celsius"
+            },
+            "meta": {}
+        },
+        {
+            "expectation_type": "expect_column_values_to_not_be_null",
+            "kwargs": {
+                "column": "timestamp"
+            },
+            "meta": {}
+        },
+        {
+            "expectation_type": "expect_column_values_to_be_between",
+            "kwargs": {
+                "column": "temperature_celsius",
+                "min_value": -100,
+                "max_value": 100
+            },
+            "meta": {}
+        },
+        {
+            "expectation_type": "expect_column_values_to_be_between",
+            "kwargs": {
+                "column": "humidity",
+                "min_value": 0,
+                "max_value": 100
+            },
+            "meta": {}
+        },
+        {
+            "expectation_type": "expect_compound_columns_to_be_unique",
+            "kwargs": {
+                "column_list": [
+                    "city",
+                    "timestamp"
+                ]
+            },
+            "meta": {
+                "notes": "Each city-timestamp combination should be unique in Gold layer"
+            }
+        },
+        {
+            "expectation_type": "expect_table_row_count_to_be_between",
+            "kwargs": {
+                "min_value": 1
+            },
+            "meta": {}
+        }
+    ],
+    "meta": {
+        "notes": "Gold layer expectations - business-ready data validation"
+    }
+}

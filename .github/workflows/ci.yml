@@ -1,0 +1,217 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  lint:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff mypy
+          pip install -r requirements.txt
+      
+      - name: Run Ruff (linting)
+        run: ruff check data_pipeline/
+      
+      - name: Run Ruff (formatting)
+        run: ruff format --check data_pipeline/
+      
+      - name: Run MyPy (type checking)
+        run: mypy data_pipeline/ --ignore-missing-imports
+
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: lint
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Run Unit Tests
+        run: |
+          pytest tests/unit/ -v --cov=data_pipeline --cov-report=xml --cov-report=term-missing
+        env:
+          OPENWEATHER_API_KEY: "test_key"
+      
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          fail_ci_if_error: false
+
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: test
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: observatory
+          POSTGRES_PASSWORD: observatory_secret
+          POSTGRES_DB: observatory
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      localstack:
+        image: localstack/localstack:3.0
+        ports:
+          - 4566:4566
+        env:
+          SERVICES: s3
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Wait for services
+        run: |
+          # Wait for LocalStack
+          timeout 30 bash -c 'until curl -s http://localhost:4566/_localstack/health | grep -q "running"; do sleep 1; done'
+          # Wait for PostgreSQL
+          timeout 30 bash -c 'until pg_isready -h localhost -p 5432 -U observatory; do sleep 1; done'
+      
+      - name: Initialize S3 bucket
+        run: |
+          pip install awscli-local
+          awslocal s3 mb s3://data-observatory
+        env:
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          AWS_DEFAULT_REGION: us-east-1
+      
+      - name: Initialize database schema
+        run: |
+          PGPASSWORD=observatory_secret psql -h localhost -U observatory -d observatory -f sql/schema.sql
+      
+      - name: Run Integration Tests
+        run: |
+          pytest tests/integration/ -v
+        env:
+          OPENWEATHER_API_KEY: "test_key"
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_DB: observatory
+          POSTGRES_USER: observatory
+          POSTGRES_PASSWORD: observatory_secret
+          AWS_ENDPOINT_URL: http://localhost:4566
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          S3_BUCKET_NAME: data-observatory
+
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: data-observatory:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      
+      - name: Test Docker image
+        run: |
+          docker run --rm data-observatory:test python -c "from data_pipeline import __version__; print(__version__)"
+
+  data-quality-check:
+    name: Data Quality Validation
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Validate Expectation Suites
+        run: |
+          python -c "
+          import json
+          from pathlib import Path
+          
+          suites_dir = Path('great_expectations/expectations')
+          for suite_file in suites_dir.glob('*.json'):
+              print(f'Validating {suite_file.name}...')
+              with open(suite_file) as f:
+                  suite = json.load(f)
+              assert 'expectation_suite_name' in suite
+              assert 'expectations' in suite
+              assert len(suite['expectations']) > 0
+              print(f'  ✓ {len(suite[\"expectations\"])} expectations defined')
+          print('All expectation suites are valid!')
+          "
+      
+      - name: Quality Gate Configuration Check
+        run: |
+          python -c "
+          from data_pipeline.quality.gates import QualityGate
+          
+          # Verify default quality gates can be created
+          gate = QualityGate('test_gate', mode='block')
+          print(f'✓ Quality gate created: {gate.gate_name}')
+          print(f'✓ Mode: {gate.mode}')
+          print('Quality gate configuration is valid!')
+          "
+        env:
+          OPENWEATHER_API_KEY: "test_key"
