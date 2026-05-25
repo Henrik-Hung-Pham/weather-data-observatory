@@ -383,6 +383,12 @@ class DataPipeline:
         except Exception as e:
             logger.warning(f"Failed to persist run result to S3: {e}")
 
+        # Store pipeline run row in Postgres (best-effort)
+        try:
+            self.database.insert_pipeline_run(result.to_dict())
+        except Exception as e:
+            logger.warning(f"Failed to persist pipeline run to database: {e}")
+
         # Store quality metrics to database
         for qr in result.quality_results:
             try:
@@ -396,9 +402,10 @@ class DataPipeline:
         Args:
             quality_result: Quality gate result to store.
         """
-        # This would insert into data_quality_metrics table
-        # Implementation depends on exact schema needs
-        pass
+        self.database.insert_quality_metrics(
+            run_id=str(quality_result.run_id),
+            gate_result=quality_result.to_dict(),
+        )
 
 
 def main() -> None:
