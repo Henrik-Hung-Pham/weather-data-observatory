@@ -82,15 +82,32 @@ class DataPipeline:
     with integrated data quality checks.
     """
 
-    # Expected schema for quality gates
+    # Expected schema for quality gates.
+    # Must match the keys produced by WeatherData.to_dict() in
+    # data_pipeline/ingestion/weather_api.py. Keep in sync when fields change.
     BRONZE_SCHEMA = {
         "city",
         "country",
+        "temperature_kelvin",
         "temperature_celsius",
+        "feels_like_celsius",
         "humidity",
+        "pressure",
+        "wind_speed",
+        "wind_direction",
+        "weather_condition",
+        "weather_description",
+        "clouds_percentage",
+        "visibility",
         "timestamp",
+        "sunrise",
+        "sunset",
+        "ingested_at",
     }
 
+    # Must match the keys produced by SilverTransformer._clean_record() in
+    # data_pipeline/transformation/silver.py (including the underscore-prefixed
+    # metadata fields _transformed_at and _source_layer).
     SILVER_SCHEMA = {
         "city",
         "country",
@@ -99,9 +116,16 @@ class DataPipeline:
         "humidity",
         "pressure",
         "wind_speed",
+        "wind_direction",
         "weather_condition",
+        "weather_description",
+        "clouds_percentage",
+        "visibility",
         "timestamp",
+        "sunrise",
+        "sunset",
         "_transformed_at",
+        "_source_layer",
     }
 
     def __init__(

@@ -31,7 +31,9 @@ class SilverTransformer:
     - Data type conversions
     """
 
-    # Expected schema for Silver layer
+    # Expected schema for Silver layer.
+    # Must match the keys produced by _clean_record() below, including the
+    # underscore-prefixed metadata fields that downstream consumers may use.
     SCHEMA = {
         "city": str,
         "country": str,
@@ -48,6 +50,8 @@ class SilverTransformer:
         "timestamp": str,  # ISO format
         "sunrise": str,
         "sunset": str,
+        "_transformed_at": str,  # ISO format metadata
+        "_source_layer": str,
     }
 
     # Valid ranges for data validation
