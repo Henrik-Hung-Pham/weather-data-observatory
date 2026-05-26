@@ -350,26 +350,41 @@ def render_quality_metrics(db: DatabaseManager):
     
     # Quality Gate Status
     st.subheader("🚦 Quality Gate Status")
-    
-    # Mock quality gate results (in production, fetch from database)
-    gates = [
-        {"layer": "Bronze", "status": "✅ PASSED", "checks": 6, "passed": 6},
-        {"layer": "Silver", "status": "✅ PASSED", "checks": 12, "passed": 12},
-        {"layer": "Gold", "status": "✅ PASSED", "checks": 10, "passed": 10},
-    ]
-    
-    gate_cols = st.columns(3)
-    
-    for i, gate in enumerate(gates):
-        with gate_cols[i]:
-            st.markdown(f"""
-            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                        padding: 20px; border-radius: 12px; color: white; text-align: center;">
-                <h3>🥉 {gate['layer']} Layer</h3>
-                <h2>{gate['status']}</h2>
-                <p>{gate['passed']}/{gate['checks']} checks passed</p>
-            </div>
-            """, unsafe_allow_html=True)
+
+    try:
+        gate_results = db.get_latest_gate_results()
+    except Exception as e:
+        st.warning(
+            f"Unable to fetch quality gate results (is the schema migrated?): {e}"
+        )
+        gate_results = []
+
+    if not gate_results:
+        st.info("No quality gate results yet. Run the pipeline to populate.")
+    else:
+        gate_cols = st.columns(len(gate_results))
+        layer_icons = {"bronze": "🥉", "silver": "🥈", "gold": "🥇"}
+
+        for i, gate in enumerate(gate_results):
+            layer = (gate.get("layer") or "").lower()
+            icon = layer_icons.get(layer, "📦")
+            passed = gate.get("gate_passed")
+            status_label = "✅ PASSED" if passed else "❌ FAILED"
+            checks_total = gate.get("expectations_evaluated") or 0
+            checks_passed = gate.get("expectations_passed") or 0
+            failure_reason = gate.get("failure_reason") or ""
+
+            with gate_cols[i]:
+                st.markdown(f"""
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                            padding: 20px; border-radius: 12px; color: white; text-align: center;">
+                    <h3>{icon} {layer.title() or 'Unknown'} Layer</h3>
+                    <h2>{status_label}</h2>
+                    <p>{checks_passed}/{checks_total} checks passed</p>
+                </div>
+                """, unsafe_allow_html=True)
+                if not passed and failure_reason:
+                    st.caption(f"Reason: {failure_reason}")
     
     st.divider()
     
@@ -391,24 +406,53 @@ def render_quality_metrics(db: DatabaseManager):
 def render_pipeline_status(db: DatabaseManager):
     """Render pipeline status page."""
     st.header("🚀 Pipeline Status")
-    
+
     # Current status
     st.subheader("📡 Current Status")
-    
+
+    try:
+        stats = db.get_pipeline_run_stats()
+    except Exception as e:
+        st.warning(
+            f"Unable to fetch pipeline statistics (is the schema migrated?): {e}"
+        )
+        stats = {}
+
     col1, col2, col3, col4 = st.columns(4)
-    
+
+    last_run_at = stats.get("last_run_at")
+    success_rate = stats.get("success_rate")
+    avg_duration = stats.get("avg_duration_seconds")
+
+    if last_run_at:
+        # last_run_at is a datetime returned by SQLAlchemy
+        try:
+            last_run_str = pd.Timestamp(last_run_at).strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            last_run_str = str(last_run_at)
+        status_label = "🟢 Ready"
+    else:
+        last_run_str = "—"
+        status_label = "⚪ No runs yet"
+
     with col1:
-        st.metric("Pipeline Status", "🟢 Ready")
-    
+        st.metric("Pipeline Status", status_label)
+
     with col2:
-        st.metric("Last Run", "Just now")
-    
+        st.metric("Last Run", last_run_str)
+
     with col3:
-        st.metric("Success Rate", "100%")
-    
+        st.metric(
+            "Success Rate",
+            f"{success_rate:.1f}%" if success_rate is not None else "—",
+        )
+
     with col4:
-        st.metric("Avg Duration", "2.3s")
-    
+        st.metric(
+            "Avg Duration",
+            f"{avg_duration:.2f}s" if avg_duration is not None else "—",
+        )
+
     st.divider()
     
     # Pipeline architecture
@@ -431,30 +475,23 @@ def render_pipeline_status(db: DatabaseManager):
     
     st.divider()
     
-    # Recent runs (mock data)
+    # Recent runs
     st.subheader("📜 Recent Pipeline Runs")
-    
-    runs_df = pd.DataFrame([
-        {
-            "Run ID": "run-001",
-            "Status": "✅ Success",
-            "Started": "2024-01-30 10:00:00",
-            "Duration": "2.3s",
-            "Records": 5,
-            "Quality": "100%",
-        },
-        {
-            "Run ID": "run-002",
-            "Status": "✅ Success",
-            "Started": "2024-01-30 09:00:00",
-            "Duration": "2.1s",
-            "Records": 5,
-            "Quality": "100%",
-        },
-    ])
-    
-    st.dataframe(runs_df, use_container_width=True, hide_index=True)
-    
+
+    try:
+        recent_runs = db.get_recent_pipeline_runs(limit=20)
+    except Exception as e:
+        st.warning(
+            f"Unable to fetch recent pipeline runs (is the schema migrated?): {e}"
+        )
+        recent_runs = []
+
+    if not recent_runs:
+        st.info("No pipeline runs recorded yet. Run the pipeline to populate.")
+    else:
+        runs_df = pd.DataFrame(recent_runs)
+        st.dataframe(runs_df, use_container_width=True, hide_index=True)
+
     st.divider()
     
     # Manual trigger

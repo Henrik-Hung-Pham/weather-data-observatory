@@ -282,6 +282,131 @@ class DatabaseManager:
             logger.error(f"Failed to fetch quality metrics: {e}")
             return {}
 
+    def get_latest_gate_results(self) -> list[dict[str, Any]]:
+        """Get the most recent quality gate result per layer.
+
+        Uses Postgres-specific ``DISTINCT ON`` to fetch one row per layer,
+        keeping the most recent ``evaluated_at`` row.
+
+        Returns:
+            List of dicts (one per layer). Empty list on error or when no
+            quality runs have been recorded yet.
+        """
+        query = text("""
+            SELECT DISTINCT ON (layer) *
+            FROM data_quality_metrics
+            ORDER BY layer, evaluated_at DESC
+        """)
+
+        try:
+            with self.get_session() as session:
+                result = session.execute(query)
+                return [dict(row._mapping) for row in result]
+
+        except SQLAlchemyError as e:
+            logger.error(f"Failed to fetch latest gate results: {e}")
+            return []
+
+    def get_recent_pipeline_runs(self, limit: int = 20) -> list[dict[str, Any]]:
+        """Get the most recent pipeline runs.
+
+        Args:
+            limit: Maximum number of runs to return.
+
+        Returns:
+            List of pipeline run dicts (newest first). Empty list on error or
+            when no runs have been recorded.
+        """
+        query = text("""
+            SELECT
+                run_id,
+                status,
+                started_at,
+                completed_at,
+                duration_seconds,
+                cities_processed,
+                records_loaded,
+                quality_gate_passed,
+                error_message
+            FROM pipeline_runs
+            ORDER BY started_at DESC
+            LIMIT :limit
+        """)
+
+        try:
+            with self.get_session() as session:
+                result = session.execute(query, {"limit": limit})
+                return [dict(row._mapping) for row in result]
+
+        except SQLAlchemyError as e:
+            logger.error(f"Failed to fetch recent pipeline runs: {e}")
+            return []
+
+    def get_pipeline_run_stats(self) -> dict[str, Any]:
+        """Get aggregate statistics for recent pipeline runs.
+
+        Computes the success rate over the last 50 runs, average duration
+        across all runs, the total number of runs, and the timestamp of the
+        most recent run.
+
+        Returns:
+            Dictionary with keys ``last_run_at``, ``success_rate``,
+            ``avg_duration_seconds``, ``total_runs``. Empty dict when no
+            runs exist or on error.
+        """
+        query = text("""
+            WITH recent AS (
+                SELECT status, duration_seconds, started_at
+                FROM pipeline_runs
+                ORDER BY started_at DESC
+                LIMIT 50
+            )
+            SELECT
+                (SELECT MAX(started_at) FROM pipeline_runs) AS last_run_at,
+                (SELECT COUNT(*) FROM pipeline_runs) AS total_runs,
+                AVG(duration_seconds) AS avg_duration_seconds,
+                CASE WHEN COUNT(*) > 0
+                    THEN SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END)::DECIMAL
+                         / COUNT(*) * 100
+                    ELSE NULL
+                END AS success_rate
+            FROM recent
+        """)
+
+        try:
+            with self.get_session() as session:
+                result = session.execute(query)
+                row = result.fetchone()
+                if not row:
+                    return {}
+
+                mapping = row._mapping
+                total_runs = mapping["total_runs"] or 0
+                if total_runs == 0:
+                    return {}
+
+                avg_duration = mapping["avg_duration_seconds"]
+                success_rate = mapping["success_rate"]
+
+                return {
+                    "last_run_at": mapping["last_run_at"],
+                    "total_runs": total_runs,
+                    "avg_duration_seconds": (
+                        round(float(avg_duration), 2)
+                        if avg_duration is not None
+                        else None
+                    ),
+                    "success_rate": (
+                        round(float(success_rate), 2)
+                        if success_rate is not None
+                        else None
+                    ),
+                }
+
+        except SQLAlchemyError as e:
+            logger.error(f"Failed to fetch pipeline run stats: {e}")
+            return {}
+
     def health_check(self) -> bool:
         """Check database connectivity.
 
