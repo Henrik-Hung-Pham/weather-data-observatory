@@ -1,7 +1,7 @@
 # Core Dependencies
 requests>=2.31.0
 pandas>=2.0.0
-great-expectations>=0.18.0
+great-expectations>=0.18.0,<1.0
 sqlalchemy>=2.0.0
 psycopg2-binary>=2.9.0
 boto3>=1.34.0
