@@ -36,9 +36,12 @@ COPY sql/ ./sql/
 # Create data directories
 RUN mkdir -p /app/data/bronze /app/data/silver /app/data/gold /app/logs
 
-# Health check
+# Health check - verify the pipeline package is importable.
+# The pipeline container runs as a batch job (no HTTP endpoint), so we
+# can't curl a /health route. A smoke import gives a meaningful signal
+# that the image is wired up correctly.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+    CMD ["python", "-c", "import data_pipeline; import data_pipeline.pipeline"]
 
 # Default command - run the pipeline
 CMD ["python", "-m", "data_pipeline.pipeline"]

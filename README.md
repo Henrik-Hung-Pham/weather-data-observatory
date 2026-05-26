@@ -2,7 +2,7 @@
 
 ## Self-Healing Data Quality Platform
 
-[![CI Pipeline](https://github.com/your-username/data-observatory/actions/workflows/ci.yml/badge.svg)](https://github.com/your-username/data-observatory/actions/workflows/ci.yml)
+[![CI Pipeline](https://github.com/Henrik-Hung-Pham/weather-data-observatory/actions/workflows/ci.yml/badge.svg)](https://github.com/Henrik-Hung-Pham/weather-data-observatory/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -75,8 +75,8 @@ An end-to-end **Data Quality Platform** demonstrating production-ready data pipe
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/data-observatory.git
-cd data-observatory
+git clone https://github.com/Henrik-Hung-Pham/weather-data-observatory.git
+cd weather-data-observatory
 
 # Create environment file
 cp .env.example .env
