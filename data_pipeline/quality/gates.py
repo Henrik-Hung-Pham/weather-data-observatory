@@ -28,7 +28,7 @@ class QualityGateStatus(Enum):
 class QualitySeverity(Enum):
     """Severity levels for quality issues."""
 
-    INFO = "info"      # Logged but doesn't affect gate
+    INFO = "info"  # Logged but doesn't affect gate
     WARNING = "warning"  # Logged, may affect gate in strict mode
     CRITICAL = "critical"  # Always blocks the pipeline
 
@@ -280,24 +280,20 @@ class QualityGate:
                 logger.info(f"✅ Quality gate '{self.gate_name}' PASSED")
         else:
             logger.error(
-                f"🛑 Quality gate '{self.gate_name}' BLOCKED: "
-                f"{len(result.issues)} issues found"
+                f"🛑 Quality gate '{self.gate_name}' BLOCKED: {len(result.issues)} issues found"
             )
             for issue in result.issues:
                 logger.error(f"  - [{issue.severity.value}] {issue.message}")
 
 
-class QualityGateBlocked(Exception):
+class QualityGateBlocked(Exception):  # noqa: N818  intentional name; "Blocked" matches the QualityGateStatus enum value, not generic error semantics
     """Exception raised when a quality gate blocks the pipeline."""
 
     def __init__(self, result: QualityGateResult):
         self.result = result
-        issues_summary = ", ".join(
-            f"{i.rule_name}: {i.message}" for i in result.issues[:3]
-        )
+        issues_summary = ", ".join(f"{i.rule_name}: {i.message}" for i in result.issues[:3])
         super().__init__(
-            f"Quality gate '{result.gate_name}' blocked for {result.layer} layer: "
-            f"{issues_summary}"
+            f"Quality gate '{result.gate_name}' blocked for {result.layer} layer: {issues_summary}"
         )
 
 
@@ -369,9 +365,7 @@ def null_check_rule(required_columns: list[str]) -> callable:
 
             if null_count > 0:
                 null_pct = (null_count / len(data)) * 100
-                severity = (
-                    QualitySeverity.CRITICAL if null_pct > 10 else QualitySeverity.WARNING
-                )
+                severity = QualitySeverity.CRITICAL if null_pct > 10 else QualitySeverity.WARNING
 
                 issues.append(
                     QualityIssue(
@@ -404,8 +398,7 @@ def range_check_rule(column: str, min_val: float, max_val: float) -> callable:
         out_of_range = [
             record
             for record in data
-            if record.get(column) is not None
-            and not (min_val <= record[column] <= max_val)
+            if record.get(column) is not None and not (min_val <= record[column] <= max_val)
         ]
 
         if out_of_range:

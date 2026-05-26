@@ -7,7 +7,6 @@ Implements medallion architecture (Bronze/Silver/Gold) partitioning.
 import json
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
 import boto3

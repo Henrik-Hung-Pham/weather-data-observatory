@@ -4,9 +4,10 @@ Handles connections, schema management, and Gold layer data serving.
 """
 
 import logging
+from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime
-from typing import Any, Generator
+from typing import Any
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
@@ -145,24 +146,27 @@ class DatabaseManager:
         try:
             with self.get_session() as session:
                 for record in weather_records:
-                    session.execute(insert_sql, {
-                        "city": record["city"],
-                        "country": record["country"],
-                        "temperature_celsius": record["temperature_celsius"],
-                        "feels_like_celsius": record["feels_like_celsius"],
-                        "humidity": record["humidity"],
-                        "pressure": record["pressure"],
-                        "wind_speed": record["wind_speed"],
-                        "wind_direction": record["wind_direction"],
-                        "weather_condition": record["weather_condition"],
-                        "weather_description": record["weather_description"],
-                        "clouds_percentage": record["clouds_percentage"],
-                        "visibility": record["visibility"],
-                        "recorded_at": record.get("timestamp") or record.get("recorded_at"),
-                        "sunrise": record["sunrise"],
-                        "sunset": record["sunset"],
-                        "ingested_at": datetime.utcnow(),
-                    })
+                    session.execute(
+                        insert_sql,
+                        {
+                            "city": record["city"],
+                            "country": record["country"],
+                            "temperature_celsius": record["temperature_celsius"],
+                            "feels_like_celsius": record["feels_like_celsius"],
+                            "humidity": record["humidity"],
+                            "pressure": record["pressure"],
+                            "wind_speed": record["wind_speed"],
+                            "wind_direction": record["wind_direction"],
+                            "weather_condition": record["weather_condition"],
+                            "weather_description": record["weather_description"],
+                            "clouds_percentage": record["clouds_percentage"],
+                            "visibility": record["visibility"],
+                            "recorded_at": record.get("timestamp") or record.get("recorded_at"),
+                            "sunrise": record["sunrise"],
+                            "sunset": record["sunset"],
+                            "ingested_at": datetime.utcnow(),
+                        },
+                    )
 
             logger.info(f"Inserted {len(weather_records)} weather records")
             return len(weather_records)
@@ -272,9 +276,7 @@ class DatabaseManager:
                         "data_completeness": round(
                             (mapping["records_with_humidity"] or 0) / max(total, 1) * 100, 2
                         ),
-                        "valid_temperature_pct": round(
-                            valid_temp / max(total, 1) * 100, 2
-                        ),
+                        "valid_temperature_pct": round(valid_temp / max(total, 1) * 100, 2),
                     }
                 return {}
 

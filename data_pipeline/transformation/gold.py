@@ -10,7 +10,7 @@ from typing import Any
 
 import pandas as pd
 
-from data_pipeline.storage import DataLakeStorage, DatabaseManager
+from data_pipeline.storage import DatabaseManager, DataLakeStorage
 
 logger = logging.getLogger(__name__)
 
@@ -123,14 +123,20 @@ class GoldTransformer:
 
     def _daily_aggregates(self, df: pd.DataFrame) -> list[dict[str, Any]]:
         """Create daily city-level aggregations."""
-        daily = df.groupby(["city", "country", "date"]).agg({
-            "temperature_celsius": ["mean", "min", "max", "std"],
-            "humidity": ["mean", "min", "max"],
-            "pressure": "mean",
-            "wind_speed": ["mean", "max"],
-            "clouds_percentage": "mean",
-            "visibility": "mean",
-        }).round(2)
+        daily = (
+            df.groupby(["city", "country", "date"])
+            .agg(
+                {
+                    "temperature_celsius": ["mean", "min", "max", "std"],
+                    "humidity": ["mean", "min", "max"],
+                    "pressure": "mean",
+                    "wind_speed": ["mean", "max"],
+                    "clouds_percentage": "mean",
+                    "visibility": "mean",
+                }
+            )
+            .round(2)
+        )
 
         # Flatten column names
         daily.columns = ["_".join(col).strip() for col in daily.columns.values]
@@ -143,12 +149,18 @@ class GoldTransformer:
 
     def _city_statistics(self, df: pd.DataFrame) -> list[dict[str, Any]]:
         """Calculate overall statistics per city."""
-        stats = df.groupby(["city", "country"]).agg({
-            "temperature_celsius": ["mean", "min", "max", "std", "count"],
-            "humidity": "mean",
-            "pressure": "mean",
-            "wind_speed": "mean",
-        }).round(2)
+        stats = (
+            df.groupby(["city", "country"])
+            .agg(
+                {
+                    "temperature_celsius": ["mean", "min", "max", "std", "count"],
+                    "humidity": "mean",
+                    "pressure": "mean",
+                    "wind_speed": "mean",
+                }
+            )
+            .round(2)
+        )
 
         # Flatten column names
         stats.columns = ["_".join(col).strip() for col in stats.columns.values]
@@ -268,9 +280,8 @@ class GoldTransformer:
         df["is_daytime"] = df["hour"].between(6, 18)
 
         # Weather features
-        df["is_comfortable"] = (
-            df["temperature_celsius"].between(18, 26)
-            & df["humidity"].between(30, 60)
+        df["is_comfortable"] = df["temperature_celsius"].between(18, 26) & df["humidity"].between(
+            30, 60
         )
 
         df["heat_index"] = self._calculate_heat_index(

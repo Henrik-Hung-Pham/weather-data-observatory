@@ -92,8 +92,7 @@ class WeatherAPIClient:
 
         if not self.api_key:
             raise ValueError(
-                "OpenWeather API key is required. "
-                "Set OPENWEATHER_API_KEY environment variable."
+                "OpenWeather API key is required. Set OPENWEATHER_API_KEY environment variable."
             )
 
         # Configure session with retry logic

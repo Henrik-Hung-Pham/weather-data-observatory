@@ -13,16 +13,16 @@ from uuid import UUID, uuid4
 
 from data_pipeline.config import get_settings
 from data_pipeline.ingestion import WeatherAPIClient
-from data_pipeline.storage import DataLakeStorage, DatabaseManager
-from data_pipeline.transformation import SilverTransformer, GoldTransformer
 from data_pipeline.quality import QualityGate, QualityGateResult
 from data_pipeline.quality.gates import (
     QualityGateBlocked,
-    schema_drift_rule,
     null_check_rule,
     range_check_rule,
+    schema_drift_rule,
 )
 from data_pipeline.quality.validator import DataValidator
+from data_pipeline.storage import DatabaseManager, DataLakeStorage
+from data_pipeline.transformation import GoldTransformer, SilverTransformer
 
 # Configure logging
 logging.basicConfig(
@@ -162,7 +162,7 @@ class DataPipeline:
             # Phase 1: Ingest to Bronze
             bronze_data = self._ingest_to_bronze(cities)
             result.records_ingested = len(bronze_data)
-            result.cities_processed = len(set(r.get("city", "") for r in bronze_data))
+            result.cities_processed = len({r.get("city", "") for r in bronze_data})
 
             if not bronze_data:
                 raise ValueError("No data ingested from API")

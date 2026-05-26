@@ -95,16 +95,20 @@ class SilverTransformer:
                 if self._validate_record(clean_record):
                     transformed.append(clean_record)
                 else:
-                    errors.append({
-                        "record": record,
-                        "reason": "Validation failed",
-                    })
+                    errors.append(
+                        {
+                            "record": record,
+                            "reason": "Validation failed",
+                        }
+                    )
             except Exception as e:
                 logger.warning(f"Failed to transform record: {e}")
-                errors.append({
-                    "record": record,
-                    "reason": str(e),
-                })
+                errors.append(
+                    {
+                        "record": record,
+                        "reason": str(e),
+                    }
+                )
 
         if errors:
             logger.warning(f"{len(errors)} records failed transformation")
@@ -262,7 +266,9 @@ class SilverTransformer:
             return None
 
         # Write to Silver layer
-        filename = output_filename or f"weather_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+        filename = (
+            output_filename or f"weather_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+        )
         return self.storage.write_json(silver_data, "silver", filename)
 
     def to_dataframe(self, records: list[dict[str, Any]]) -> pd.DataFrame:

@@ -10,11 +10,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import great_expectations as gx
+import pandas as pd
 from great_expectations.core import ExpectationSuite
 from great_expectations.core.expectation_configuration import ExpectationConfiguration
 from great_expectations.dataset import PandasDataset
-import pandas as pd
+
+import great_expectations as gx
 
 logger = logging.getLogger(__name__)
 
@@ -54,10 +55,7 @@ class DataValidator:
         logger.info(f"Validating data with suite: {suite_name}")
 
         # Convert to DataFrame if necessary
-        if isinstance(data, list):
-            df = pd.DataFrame(data)
-        else:
-            df = data
+        df = pd.DataFrame(data) if isinstance(data, list) else data
 
         if df.empty:
             logger.warning("Empty dataset provided for validation")
@@ -119,7 +117,9 @@ class DataValidator:
         with open(path) as f:
             suite_dict = json.load(f)
 
-        suite = ExpectationSuite(expectation_suite_name=suite_dict.get("expectation_suite_name", path.stem))
+        suite = ExpectationSuite(
+            expectation_suite_name=suite_dict.get("expectation_suite_name", path.stem)
+        )
 
         for exp_config in suite_dict.get("expectations", []):
             suite.add_expectation(
@@ -298,15 +298,9 @@ class DataValidator:
                 for r in results.results
             ],
             "statistics": {
-                "evaluated_expectations": results.statistics.get(
-                    "evaluated_expectations", 0
-                ),
-                "successful_expectations": results.statistics.get(
-                    "successful_expectations", 0
-                ),
-                "unsuccessful_expectations": results.statistics.get(
-                    "unsuccessful_expectations", 0
-                ),
+                "evaluated_expectations": results.statistics.get("evaluated_expectations", 0),
+                "successful_expectations": results.statistics.get("successful_expectations", 0),
+                "unsuccessful_expectations": results.statistics.get("unsuccessful_expectations", 0),
                 "success_percent": results.statistics.get("success_percent", 0),
             },
             "meta": {
@@ -362,10 +356,7 @@ class DataValidator:
         Returns:
             Generated ExpectationSuite.
         """
-        if isinstance(data, list):
-            df = pd.DataFrame(data)
-        else:
-            df = data
+        df = pd.DataFrame(data) if isinstance(data, list) else data
 
         ge_df = PandasDataset(df)
 
