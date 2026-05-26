@@ -100,3 +100,6 @@ Thumbs.db
 *.pem
 *.key
 secrets/
+
+# Claude
+.claude/
