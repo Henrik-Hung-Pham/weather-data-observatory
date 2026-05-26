@@ -36,8 +36,19 @@ class TestWeatherAPIClient:
 
     @pytest.mark.unit
     def test_client_requires_api_key(self):
-        """Test client raises error without API key."""
-        with patch.dict("os.environ", {"OPENWEATHER_API_KEY": ""}):
+        """Test client raises error without API key.
+
+        ``get_settings`` is ``@lru_cache``d, so the cached Settings (populated by
+        conftest.py with ``test_api_key``) would mask an empty override of
+        ``os.environ``. Patch the symbol the module actually uses to return a
+        Settings whose ``openweather_api_key`` is empty.
+        """
+        fake_settings = MagicMock()
+        fake_settings.openweather_api_key = ""
+        with patch(
+            "data_pipeline.ingestion.weather_api.get_settings",
+            return_value=fake_settings,
+        ):
             with pytest.raises(ValueError, match="API key is required"):
                 WeatherAPIClient(api_key="")
 
