@@ -14,8 +14,7 @@ import pandas as pd
 from great_expectations.core import ExpectationSuite
 from great_expectations.core.expectation_configuration import ExpectationConfiguration
 from great_expectations.dataset import PandasDataset
-
-import great_expectations as gx
+from great_expectations.profile.basic_dataset_profiler import BasicDatasetProfiler
 
 logger = logging.getLogger(__name__)
 
@@ -361,7 +360,7 @@ class DataValidator:
         ge_df = PandasDataset(df)
 
         # Use built-in profiler
-        suite, _ = ge_df.profile(profiler=gx.profile.BasicSuiteBuilderProfiler)
+        suite, _ = ge_df.profile(profiler=BasicDatasetProfiler)
         suite.expectation_suite_name = suite_name
 
         self._suites_cache[suite_name] = suite

@@ -5,6 +5,7 @@ when data quality issues are detected.
 """
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -112,9 +113,12 @@ class QualityGate:
         self.gate_name = gate_name
         self.mode = mode or settings.quality_gate_mode
         self.run_id = uuid4()
-        self._rules: list[callable] = []
+        self._rules: list[Callable[[list[dict[str, Any]]], list[QualityIssue]]] = []
 
-    def add_rule(self, rule_func: callable) -> "QualityGate":
+    def add_rule(
+        self,
+        rule_func: Callable[[list[dict[str, Any]]], list[QualityIssue]],
+    ) -> "QualityGate":
         """Add a quality rule to the gate.
 
         Args:
@@ -302,7 +306,9 @@ class QualityGateBlocked(Exception):  # noqa: N818  intentional name; "Blocked" 
 # ============================================================================
 
 
-def schema_drift_rule(expected_columns: set[str]) -> callable:
+def schema_drift_rule(
+    expected_columns: set[str],
+) -> Callable[[list[dict[str, Any]]], list[QualityIssue]]:
     """Create a rule that detects schema drift.
 
     Args:
@@ -347,7 +353,9 @@ def schema_drift_rule(expected_columns: set[str]) -> callable:
     return check_schema
 
 
-def null_check_rule(required_columns: list[str]) -> callable:
+def null_check_rule(
+    required_columns: list[str],
+) -> Callable[[list[dict[str, Any]]], list[QualityIssue]]:
     """Create a rule that checks for null values in required columns.
 
     Args:
@@ -382,7 +390,11 @@ def null_check_rule(required_columns: list[str]) -> callable:
     return check_nulls
 
 
-def range_check_rule(column: str, min_val: float, max_val: float) -> callable:
+def range_check_rule(
+    column: str,
+    min_val: float,
+    max_val: float,
+) -> Callable[[list[dict[str, Any]]], list[QualityIssue]]:
     """Create a rule that checks values are within expected range.
 
     Args:
@@ -421,7 +433,10 @@ def range_check_rule(column: str, min_val: float, max_val: float) -> callable:
     return check_range
 
 
-def freshness_rule(timestamp_column: str, max_age_hours: int = 24) -> callable:
+def freshness_rule(
+    timestamp_column: str,
+    max_age_hours: int = 24,
+) -> Callable[[list[dict[str, Any]]], list[QualityIssue]]:
     """Create a rule that checks data freshness.
 
     Args:

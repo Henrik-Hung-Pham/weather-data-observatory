@@ -37,9 +37,16 @@ class TestWeatherAPIClient:
     @pytest.mark.unit
     def test_client_requires_api_key(self):
         """Test client raises error without API key."""
-        with patch.dict("os.environ", {"OPENWEATHER_API_KEY": ""}):
-            with pytest.raises(ValueError, match="API key is required"):
-                WeatherAPIClient(api_key="")
+        from data_pipeline.config import get_settings
+        get_settings.cache_clear()
+        try:
+            with patch.dict("os.environ", {"OPENWEATHER_API_KEY": ""}):
+                with pytest.raises(ValueError, match="API key is required"):
+                    WeatherAPIClient()
+                with pytest.raises(ValueError, match="API key is required"):
+                    WeatherAPIClient(api_key="")
+        finally:
+            get_settings.cache_clear()
 
     @pytest.mark.unit
     def test_fetch_weather_success(self, client, mock_response, sample_api_response):

@@ -154,7 +154,8 @@ class DataLakeStorage:
                 Key=key,
             )
             body = response["Body"].read().decode("utf-8")
-            return json.loads(body)
+            data: dict[str, Any] | list[dict[str, Any]] = json.loads(body)
+            return data
 
         except ClientError as e:
             error_code = e.response.get("Error", {}).get("Code", "")

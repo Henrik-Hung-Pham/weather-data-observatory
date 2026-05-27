@@ -6,7 +6,7 @@ Creates aggregated views, statistics, and analytics-ready datasets.
 
 import logging
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 
@@ -119,7 +119,7 @@ class GoldTransformer:
         )
 
         # Convert back to records
-        return records.to_dict(orient="records")
+        return cast(list[dict[str, Any]], records.to_dict(orient="records"))
 
     def _daily_aggregates(self, df: pd.DataFrame) -> list[dict[str, Any]]:
         """Create daily city-level aggregations."""
@@ -145,7 +145,7 @@ class GoldTransformer:
         # Convert date to string for JSON serialization
         daily["date"] = daily["date"].astype(str)
 
-        return daily.to_dict(orient="records")
+        return cast(list[dict[str, Any]], daily.to_dict(orient="records"))
 
     def _city_statistics(self, df: pd.DataFrame) -> list[dict[str, Any]]:
         """Calculate overall statistics per city."""
@@ -169,7 +169,7 @@ class GoldTransformer:
         # Rename count column
         stats = stats.rename(columns={"temperature_celsius_count": "observation_count"})
 
-        return stats.to_dict(orient="records")
+        return cast(list[dict[str, Any]], stats.to_dict(orient="records"))
 
     def transform_and_store(
         self,

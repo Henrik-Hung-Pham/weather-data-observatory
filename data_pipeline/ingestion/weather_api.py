@@ -88,7 +88,7 @@ class WeatherAPIClient:
             api_key: OpenWeather API key. If not provided, uses settings.
         """
         settings = get_settings()
-        self.api_key = api_key or settings.openweather_api_key
+        self.api_key = api_key if api_key is not None else settings.openweather_api_key
 
         if not self.api_key:
             raise ValueError(

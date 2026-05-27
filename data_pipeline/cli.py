@@ -64,7 +64,7 @@ def main() -> int:
         return 0
 
 
-def run_pipeline(args) -> int:
+def run_pipeline(args: argparse.Namespace) -> int:
     """Run the data pipeline."""
     from data_pipeline.pipeline import DataPipeline
 
@@ -111,7 +111,7 @@ def run_dashboard() -> int:
         return 0
 
 
-def run_validation(args) -> int:
+def run_validation(args: argparse.Namespace) -> int:
     """Run data validation for a specific layer."""
     from data_pipeline.quality.validator import DataValidator
     from data_pipeline.storage import DataLakeStorage
