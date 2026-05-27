@@ -109,8 +109,12 @@ jobs:
       
       - name: Wait for services
         run: |
-          # Wait for LocalStack
-          timeout 30 bash -c 'until curl -s http://localhost:4566/_localstack/health | grep -q "running"; do sleep 1; done'
+          # Wait for LocalStack — first boot in CI often takes 60-90s
+          if ! timeout 120 bash -c 'until curl -fsS http://localhost:4566/_localstack/health | grep -q "running"; do sleep 2; done'; then
+            echo "LocalStack did not become healthy in 120s. Last health response:"
+            curl -fsS http://localhost:4566/_localstack/health || true
+            exit 1
+          fi
           # Wait for PostgreSQL
           timeout 30 bash -c 'until pg_isready -h localhost -p 5432 -U observatory; do sleep 1; done'
       
