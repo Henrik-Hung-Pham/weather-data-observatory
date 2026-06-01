@@ -6,7 +6,7 @@ Handles connections, schema management, and Gold layer data serving.
 import logging
 from collections.abc import Generator
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import create_engine, text
@@ -164,7 +164,7 @@ class DatabaseManager:
                             "recorded_at": record.get("timestamp") or record.get("recorded_at"),
                             "sunrise": record["sunrise"],
                             "sunset": record["sunset"],
-                            "ingested_at": datetime.utcnow(),
+                            "ingested_at": datetime.now(timezone.utc),
                         },
                     )
 
@@ -283,6 +283,137 @@ class DatabaseManager:
         except SQLAlchemyError as e:
             logger.error(f"Failed to fetch quality metrics: {e}")
             return {}
+
+    def insert_quality_metrics(
+        self,
+        run_id: str,
+        gate_result: dict[str, Any],
+    ) -> None:
+        """Insert a quality gate result row into ``data_quality_metrics``.
+
+        Args:
+            run_id: Pipeline run identifier (UUID string).
+            gate_result: Serialized ``QualityGateResult`` dictionary.
+
+        Raises:
+            DatabaseError: If insertion fails.
+        """
+        insert_sql = text("""
+            INSERT INTO data_quality_metrics (
+                run_id, layer, total_records, passed_records, failed_records,
+                expectation_suite, expectations_evaluated, expectations_passed,
+                gate_passed, failure_reason
+            ) VALUES (
+                :run_id, :layer, :total_records, :passed_records, :failed_records,
+                :expectation_suite, :expectations_evaluated, :expectations_passed,
+                :gate_passed, :failure_reason
+            )
+        """)
+
+        metrics = gate_result.get("metrics", {}) or {}
+        issues = gate_result.get("issues", []) or []
+
+        total_records = int(metrics.get("total_records", 0) or 0)
+        failed_records = sum(int(i.get("affected_records", 0) or 0) for i in issues)
+        passed_records = max(total_records - failed_records, 0)
+
+        expectations_evaluated = int(metrics.get("rules_evaluated", 0) or 0)
+        # Expectations passed = rules evaluated minus distinct failing rules
+        failing_rules = {i.get("rule_name") for i in issues if i.get("rule_name")}
+        expectations_passed = max(expectations_evaluated - len(failing_rules), 0)
+
+        status = gate_result.get("status", "passed")
+        gate_passed = status in ("passed", "warned")
+        failure_reason = ""
+        if not gate_passed and issues:
+            failure_reason = "; ".join(
+                f"{i.get('rule_name', 'rule')}: {i.get('message', '')}" for i in issues[:5]
+            )
+
+        try:
+            with self.get_session() as session:
+                session.execute(
+                    insert_sql,
+                    {
+                        "run_id": run_id,
+                        "layer": gate_result.get("layer"),
+                        "total_records": total_records,
+                        "passed_records": passed_records,
+                        "failed_records": failed_records,
+                        "expectation_suite": gate_result.get("gate_name"),
+                        "expectations_evaluated": expectations_evaluated,
+                        "expectations_passed": expectations_passed,
+                        "gate_passed": gate_passed,
+                        "failure_reason": failure_reason or None,
+                    },
+                )
+        except SQLAlchemyError as e:
+            error_msg = f"Failed to insert quality metrics: {e}"
+            logger.error(error_msg)
+            raise DatabaseError(error_msg) from e
+
+    def insert_pipeline_run(self, run_result: dict[str, Any]) -> None:
+        """Insert a pipeline run row into ``pipeline_runs``.
+
+        Args:
+            run_result: Serialized ``PipelineRunResult`` dictionary.
+
+        Raises:
+            DatabaseError: If insertion fails.
+        """
+        insert_sql = text("""
+            INSERT INTO pipeline_runs (
+                run_id, status, started_at, completed_at, duration_seconds,
+                cities_processed, records_ingested, records_transformed,
+                records_loaded, quality_gate_passed, quality_gate_reason,
+                error_message, error_traceback
+            ) VALUES (
+                :run_id, :status, :started_at, :completed_at, :duration_seconds,
+                :cities_processed, :records_ingested, :records_transformed,
+                :records_loaded, :quality_gate_passed, :quality_gate_reason,
+                :error_message, :error_traceback
+            )
+            ON CONFLICT (run_id) DO UPDATE SET
+                status = EXCLUDED.status,
+                completed_at = EXCLUDED.completed_at,
+                duration_seconds = EXCLUDED.duration_seconds,
+                cities_processed = EXCLUDED.cities_processed,
+                records_ingested = EXCLUDED.records_ingested,
+                records_transformed = EXCLUDED.records_transformed,
+                records_loaded = EXCLUDED.records_loaded,
+                quality_gate_passed = EXCLUDED.quality_gate_passed,
+                quality_gate_reason = EXCLUDED.quality_gate_reason,
+                error_message = EXCLUDED.error_message,
+                error_traceback = EXCLUDED.error_traceback
+        """)
+
+        duration = run_result.get("duration_seconds")
+        duration_int = int(duration) if duration is not None else None
+
+        try:
+            with self.get_session() as session:
+                session.execute(
+                    insert_sql,
+                    {
+                        "run_id": run_result.get("run_id"),
+                        "status": run_result.get("status"),
+                        "started_at": run_result.get("started_at"),
+                        "completed_at": run_result.get("completed_at"),
+                        "duration_seconds": duration_int,
+                        "cities_processed": run_result.get("cities_processed"),
+                        "records_ingested": run_result.get("records_ingested"),
+                        "records_transformed": run_result.get("records_transformed"),
+                        "records_loaded": run_result.get("records_loaded"),
+                        "quality_gate_passed": run_result.get("quality_gate_passed"),
+                        "quality_gate_reason": run_result.get("quality_gate_reason") or None,
+                        "error_message": run_result.get("error_message") or None,
+                        "error_traceback": run_result.get("error_traceback") or None,
+                    },
+                )
+        except SQLAlchemyError as e:
+            error_msg = f"Failed to insert pipeline run: {e}"
+            logger.error(error_msg)
+            raise DatabaseError(error_msg) from e
 
     def health_check(self) -> bool:
         """Check database connectivity.
