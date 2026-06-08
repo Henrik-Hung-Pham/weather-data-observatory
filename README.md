@@ -121,6 +121,7 @@ data-observatory/
 │   ├── transformation/      # Silver/Gold layer transformations
 │   ├── quality/             # Quality gates & Great Expectations
 │   ├── storage/             # S3 & PostgreSQL abstractions
+│   ├── schema.py            # Canonical schema (single source of truth)
 │   └── pipeline.py          # Main orchestrator
 ├── tests/                   # Comprehensive test suite
 │   ├── unit/                # Unit tests
@@ -238,6 +239,22 @@ def custom_rule(data: list[dict]) -> list[QualityIssue]:
 gate = QualityGate("my_gate")
 gate.add_rule(custom_rule)
 ```
+
+### Evolving the Schema
+
+The weather schema is defined **once** in
+[`data_pipeline/schema.py`](data_pipeline/schema.py). The Bronze/Silver
+frozensets, the `SilverTransformer` type map, and the validator's default
+Bronze expectations all import from it, so they cannot drift.
+
+Two artifacts can't import Python — the Great Expectations JSON suites and
+`sql/schema.sql` — so they're guarded by
+[`tests/unit/test_schema_consistency.py`](tests/unit/test_schema_consistency.py).
+To add or change a column:
+
+1. Edit `data_pipeline/schema.py` (and `WeatherData` for a new raw field).
+2. Run `pytest tests/unit/test_schema_consistency.py` — failures point you at
+   the JSON suite or SQL DDL that still needs updating.
 
 ---
 
