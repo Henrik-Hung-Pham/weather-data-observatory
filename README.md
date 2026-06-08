@@ -206,6 +206,21 @@ passed via `extra={...}` — ready to ship to CloudWatch / Loki / Datadog.
 
 ---
 
+## 🔔 Alerting
+
+When a run **fails** or is **blocked** by a quality gate, the pipeline can post
+a Slack notification (best-effort — a delivery failure is logged, never fatal).
+Disabled by default; enable with:
+
+```env
+ALERTS_ENABLED=true
+SLACK_WEBHOOK_URL=https://hooks.slack.com/services/XXX/YYY/ZZZ
+```
+
+See [`data_pipeline/alerting.py`](data_pipeline/alerting.py).
+
+---
+
 ## 🎯 Demonstrating Senior-Level Skills
 
 This project showcases key capabilities that differentiate a **Senior Data Engineer**:
@@ -279,7 +294,7 @@ To add or change a column:
 
 - [ ] Add Apache Airflow for scheduling
 - [ ] Implement data lineage tracking
-- [ ] Add Slack/PagerDuty alerting
+- [x] Add Slack alerting — see [`data_pipeline/alerting.py`](data_pipeline/alerting.py)
 - [ ] Support additional data sources (financial APIs, etc.)
 - [x] Deploy to AWS with Terraform — see [`infra/terraform/`](infra/terraform/)
 

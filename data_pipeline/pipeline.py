@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID, uuid4
 
+from data_pipeline.alerting import SlackAlerter
 from data_pipeline.config import get_settings
 from data_pipeline.ingestion import WeatherAPIClient
 from data_pipeline.logging_config import configure_logging
@@ -95,6 +96,7 @@ class DataPipeline:
         storage: DataLakeStorage | None = None,
         database: DatabaseManager | None = None,
         validator: DataValidator | None = None,
+        alerter: SlackAlerter | None = None,
     ):
         """Initialize the data pipeline.
 
@@ -103,6 +105,7 @@ class DataPipeline:
             storage: Data lake storage for Bronze/Silver/Gold layers.
             database: Database manager for serving layer.
             validator: Data validator using Great Expectations.
+            alerter: Alerter for pipeline failures / quality-gate blocks.
         """
         settings = get_settings()
 
@@ -111,6 +114,7 @@ class DataPipeline:
         self.storage = storage or DataLakeStorage()
         self.database = database or DatabaseManager()
         self.validator = validator or DataValidator()
+        self.alerter = alerter or SlackAlerter()
 
         # Transformers
         self.silver_transformer = SilverTransformer(self.storage)
@@ -204,6 +208,18 @@ class DataPipeline:
 
         # Store run result
         self._persist_run_result(result)
+
+        # Alert on failure / quality-gate block (best-effort, no-op on success)
+        self.alerter.alert_pipeline_result(
+            run_id=str(result.run_id),
+            status=result.status,
+            reason=result.quality_gate_reason or result.error_message,
+            stats={
+                "ingested": result.records_ingested,
+                "transformed": result.records_transformed,
+                "loaded": result.records_loaded,
+            },
+        )
 
         logger.info(
             f"📊 Pipeline Summary:\n"
