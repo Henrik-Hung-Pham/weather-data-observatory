@@ -440,6 +440,43 @@ class DatabaseManager:
             logger.error(f"Failed to fetch latest gate results: {e}")
             return []
 
+    def get_quality_trend(self, days: int = 14) -> list[dict[str, Any]]:
+        """Get daily average quality pass-rate per layer over a window.
+
+        Args:
+            days: Look-back window in days.
+
+        Returns:
+            List of dicts with ``date``, ``layer``, ``avg_pass_rate``,
+            ``gates_passed``, ``gates_failed`` (oldest first). Empty on error
+            or when no quality runs fall in the window.
+        """
+        query = text("""
+            SELECT
+                DATE(evaluated_at) AS date,
+                layer,
+                AVG(pass_rate) AS avg_pass_rate,
+                SUM(CASE WHEN gate_passed THEN 1 ELSE 0 END) AS gates_passed,
+                SUM(CASE WHEN NOT gate_passed THEN 1 ELSE 0 END) AS gates_failed
+            FROM data_quality_metrics
+            WHERE evaluated_at >= NOW() - make_interval(days => :days)
+            GROUP BY DATE(evaluated_at), layer
+            ORDER BY date ASC, layer ASC
+        """)
+
+        try:
+            with self.get_session() as session:
+                result = session.execute(query, {"days": days})
+                rows: list[dict[str, Any]] = [dict(row._mapping) for row in result]
+                for row in rows:
+                    if row.get("avg_pass_rate") is not None:
+                        row["avg_pass_rate"] = round(float(row["avg_pass_rate"]), 2)
+                return rows
+
+        except SQLAlchemyError as e:
+            logger.error(f"Failed to fetch quality trend: {e}")
+            return []
+
     def get_recent_pipeline_runs(self, limit: int = 20) -> list[dict[str, Any]]:
         """Get the most recent pipeline runs.
 

@@ -14,6 +14,7 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from data_pipeline.analytics import detect_temperature_anomalies
 from data_pipeline.config import get_settings
 from data_pipeline.storage import DatabaseManager
 
@@ -387,7 +388,56 @@ def render_quality_metrics(db: DatabaseManager):
                     st.caption(f"Reason: {failure_reason}")
     
     st.divider()
-    
+
+    # Quality trend over time
+    st.subheader("📈 Quality Pass-Rate Trend")
+
+    try:
+        trend = db.get_quality_trend(days=14)
+    except Exception as e:
+        st.warning(f"Unable to fetch quality trend (is the schema migrated?): {e}")
+        trend = []
+
+    if not trend:
+        st.info("No quality history yet. Run the pipeline a few times to build a trend.")
+    else:
+        trend_df = pd.DataFrame(trend)
+        trend_df["date"] = pd.to_datetime(trend_df["date"])
+        fig = px.line(
+            trend_df,
+            x="date",
+            y="avg_pass_rate",
+            color="layer",
+            markers=True,
+            title="Average quality-gate pass rate by layer (last 14 days)",
+            labels={"avg_pass_rate": "Pass rate (%)", "date": "Date"},
+        )
+        fig.update_layout(height=380, template="plotly_white", yaxis_range=[0, 105])
+        st.plotly_chart(fig, use_container_width=True)
+
+    st.divider()
+
+    # Statistical anomaly detection on temperature
+    st.subheader("🚨 Temperature Anomalies")
+    st.caption("Readings more than 3σ from their city's mean (z-score outliers).")
+
+    weather = db.get_latest_weather(limit=500)
+    anomalies = detect_temperature_anomalies(weather) if weather else []
+
+    if not anomalies:
+        st.success("✅ No temperature anomalies detected.")
+    else:
+        st.warning(f"⚠️ {len(anomalies)} anomalous reading(s) detected.")
+        anomaly_df = pd.DataFrame(anomalies)
+        cols = [
+            c
+            for c in ["city", "country", "temperature_celsius", "z_score", "recorded_at"]
+            if c in anomaly_df.columns
+        ]
+        st.dataframe(anomaly_df[cols], use_container_width=True, hide_index=True)
+
+    st.divider()
+
     # Quality Rules
     st.subheader("📏 Active Quality Rules")
     
