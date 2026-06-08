@@ -39,6 +39,10 @@ An end-to-end **Data Quality Platform** demonstrating production-ready data pipe
 | 🥈 **Silver** | Cleaned, normalized, standardized | S3/LocalStack | Data types, ranges, completeness |
 | 🥇 **Gold** | Aggregated, business-ready | PostgreSQL | Uniqueness, referential integrity |
 
+Data-lake objects are written with **Hive-style date partitioning**
+(`…/year=2024/month=01/day=15/…`) so query engines (Athena/Glue/Spark) can
+prune partitions. Set `PARTITION_STYLE=plain` for bare `YYYY/MM/DD/` instead.
+
 ---
 
 ## ✨ Key Features

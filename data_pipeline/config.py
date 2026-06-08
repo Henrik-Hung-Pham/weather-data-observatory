@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     bronze_path: str = Field(default="bronze/weather")
     silver_path: str = Field(default="silver/weather")
     gold_path: str = Field(default="gold/weather")
+    partition_style: Literal["hive", "plain"] = Field(
+        default="hive",
+        description="Date partition layout: 'hive' (year=YYYY/month=MM/day=DD, "
+        "enables partition pruning in Athena/Glue/Spark) or 'plain' (YYYY/MM/DD)",
+    )
 
     # Pipeline Configuration
     ingestion_interval_minutes: int = Field(default=60)
