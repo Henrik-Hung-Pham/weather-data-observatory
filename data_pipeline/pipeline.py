@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 
 from data_pipeline.config import get_settings
 from data_pipeline.ingestion import WeatherAPIClient
+from data_pipeline.logging_config import configure_logging
 from data_pipeline.quality import QualityGate, QualityGateResult
 from data_pipeline.quality.gates import (
     QualityGateBlocked,
@@ -26,11 +27,9 @@ from data_pipeline.schema import SILVER_SCHEMA as _SILVER_SCHEMA
 from data_pipeline.storage import DatabaseManager, DataLakeStorage
 from data_pipeline.transformation import GoldTransformer, SilverTransformer
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
+# Configure logging from settings (text or json, level configurable).
+_settings = get_settings()
+configure_logging(_settings.log_level, _settings.log_format)
 logger = logging.getLogger(__name__)
 
 

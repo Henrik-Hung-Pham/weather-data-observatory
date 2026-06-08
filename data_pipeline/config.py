@@ -77,6 +77,13 @@ class Settings(BaseSettings):
     # Dashboard Configuration
     streamlit_port: int = Field(default=8501)
 
+    # Observability / Logging
+    log_level: str = Field(default="INFO", description="Root log level (e.g. INFO, DEBUG)")
+    log_format: Literal["text", "json"] = Field(
+        default="text",
+        description="Log output format: text (human) or json (structured)",
+    )
+
     @property
     def cities_list(self) -> list[str]:
         """Parse comma-separated cities into a list."""

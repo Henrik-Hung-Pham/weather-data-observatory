@@ -189,6 +189,23 @@ Pipeline logs warnings but continues processing.
 
 ---
 
+## 🪵 Logging
+
+Logging is centralised in
+[`data_pipeline/logging_config.py`](data_pipeline/logging_config.py) and
+configured from settings:
+
+```env
+LOG_LEVEL=INFO     # DEBUG | INFO | WARNING | ERROR
+LOG_FORMAT=json    # text (human-readable) | json (structured, one object/line)
+```
+
+In `json` mode every record is emitted as a single JSON line with
+`timestamp`, `level`, `logger`, and `message`, plus any structured context
+passed via `extra={...}` — ready to ship to CloudWatch / Loki / Datadog.
+
+---
+
 ## 🎯 Demonstrating Senior-Level Skills
 
 This project showcases key capabilities that differentiate a **Senior Data Engineer**:
