@@ -10,6 +10,7 @@ from typing import Any
 
 import pandas as pd
 
+from data_pipeline.schema import SILVER_FIELD_TYPES
 from data_pipeline.storage import DataLakeStorage
 
 logger = logging.getLogger(__name__)
@@ -31,28 +32,10 @@ class SilverTransformer:
     - Data type conversions
     """
 
-    # Expected schema for Silver layer.
-    # Must match the keys produced by _clean_record() below, including the
-    # underscore-prefixed metadata fields that downstream consumers may use.
-    SCHEMA = {
-        "city": str,
-        "country": str,
-        "temperature_celsius": float,
-        "feels_like_celsius": float,
-        "humidity": int,
-        "pressure": int,
-        "wind_speed": float,
-        "wind_direction": int,
-        "weather_condition": str,
-        "weather_description": str,
-        "clouds_percentage": int,
-        "visibility": int,
-        "timestamp": str,  # ISO format
-        "sunrise": str,
-        "sunset": str,
-        "_transformed_at": str,  # ISO format metadata
-        "_source_layer": str,
-    }
+    # Expected schema for Silver layer, sourced from the canonical schema
+    # module (data_pipeline/schema.py). Must match the keys produced by
+    # _clean_record() below, including the underscore-prefixed metadata fields.
+    SCHEMA = SILVER_FIELD_TYPES
 
     # Valid ranges for data validation
     VALID_RANGES = {

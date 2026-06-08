@@ -21,6 +21,8 @@ from data_pipeline.quality.gates import (
     schema_drift_rule,
 )
 from data_pipeline.quality.validator import DataValidator
+from data_pipeline.schema import BRONZE_SCHEMA as _BRONZE_SCHEMA
+from data_pipeline.schema import SILVER_SCHEMA as _SILVER_SCHEMA
 from data_pipeline.storage import DatabaseManager, DataLakeStorage
 from data_pipeline.transformation import GoldTransformer, SilverTransformer
 
@@ -82,51 +84,11 @@ class DataPipeline:
     with integrated data quality checks.
     """
 
-    # Expected schema for quality gates.
-    # Must match the keys produced by WeatherData.to_dict() in
-    # data_pipeline/ingestion/weather_api.py. Keep in sync when fields change.
-    BRONZE_SCHEMA = {
-        "city",
-        "country",
-        "temperature_kelvin",
-        "temperature_celsius",
-        "feels_like_celsius",
-        "humidity",
-        "pressure",
-        "wind_speed",
-        "wind_direction",
-        "weather_condition",
-        "weather_description",
-        "clouds_percentage",
-        "visibility",
-        "timestamp",
-        "sunrise",
-        "sunset",
-        "ingested_at",
-    }
-
-    # Must match the keys produced by SilverTransformer._clean_record() in
-    # data_pipeline/transformation/silver.py (including the underscore-prefixed
-    # metadata fields _transformed_at and _source_layer).
-    SILVER_SCHEMA = {
-        "city",
-        "country",
-        "temperature_celsius",
-        "feels_like_celsius",
-        "humidity",
-        "pressure",
-        "wind_speed",
-        "wind_direction",
-        "weather_condition",
-        "weather_description",
-        "clouds_percentage",
-        "visibility",
-        "timestamp",
-        "sunrise",
-        "sunset",
-        "_transformed_at",
-        "_source_layer",
-    }
+    # Expected schemas for quality gates, sourced from the canonical schema
+    # module (data_pipeline/schema.py). Exposed as class attributes to keep
+    # the existing self.BRONZE_SCHEMA / self.SILVER_SCHEMA interface.
+    BRONZE_SCHEMA = _BRONZE_SCHEMA
+    SILVER_SCHEMA = _SILVER_SCHEMA
 
     def __init__(
         self,
