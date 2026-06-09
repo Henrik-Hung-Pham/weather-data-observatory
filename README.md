@@ -264,7 +264,7 @@ To add or change a column:
 - [ ] Implement data lineage tracking
 - [ ] Add Slack/PagerDuty alerting
 - [ ] Support additional data sources (financial APIs, etc.)
-- [ ] Deploy to AWS with Terraform
+- [x] Deploy to AWS with Terraform — see [`infra/terraform/`](infra/terraform/)
 
 ---
 
