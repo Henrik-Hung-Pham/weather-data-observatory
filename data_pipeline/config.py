@@ -29,6 +29,21 @@ class Settings(BaseSettings):
         default="London,New York,Tokyo,Sydney,Paris",
         description="Comma-separated list of cities to fetch weather for",
     )
+    api_max_retries: int = Field(
+        default=3,
+        ge=0,
+        description="Max retry attempts for transient OpenWeather API failures",
+    )
+    api_backoff_factor: float = Field(
+        default=1.0,
+        ge=0,
+        description="Exponential backoff factor between API retries (seconds)",
+    )
+    api_timeout_seconds: int = Field(
+        default=30,
+        gt=0,
+        description="Per-request timeout for OpenWeather API calls",
+    )
 
     # Database Configuration
     postgres_host: str = Field(default="localhost")

@@ -1,8 +1,9 @@
 """Unit tests for Weather API client."""
 
-import pytest
-from unittest.mock import MagicMock, patch
 from datetime import datetime, timezone
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from data_pipeline.ingestion.weather_api import (
     WeatherAPIClient,
@@ -53,7 +54,7 @@ class TestWeatherAPIClient:
         """Test successful weather fetch."""
         with patch.object(client.session, "get", return_value=mock_response):
             weather = client.fetch_weather("London")
-            
+
             assert isinstance(weather, WeatherData)
             assert weather.city == "London"
             assert weather.country == "GB"
@@ -67,7 +68,7 @@ class TestWeatherAPIClient:
         mock = MagicMock()
         mock.status_code = 401
         mock.ok = False
-        
+
         with patch.object(client.session, "get", return_value=mock):
             with pytest.raises(WeatherAPIError, match="Invalid API key"):
                 client.fetch_weather("London")
@@ -78,7 +79,7 @@ class TestWeatherAPIClient:
         mock = MagicMock()
         mock.status_code = 404
         mock.ok = False
-        
+
         with patch.object(client.session, "get", return_value=mock):
             with pytest.raises(WeatherAPIError, match="City not found"):
                 client.fetch_weather("InvalidCity123")
@@ -89,7 +90,7 @@ class TestWeatherAPIClient:
         mock = MagicMock()
         mock.status_code = 429
         mock.ok = False
-        
+
         with patch.object(client.session, "get", return_value=mock):
             with pytest.raises(WeatherAPIError, match="Rate limit"):
                 client.fetch_weather("London")
@@ -99,7 +100,7 @@ class TestWeatherAPIClient:
         """Test fetching weather for multiple cities."""
         with patch.object(client.session, "get", return_value=mock_response):
             results = client.fetch_multiple_cities(["London", "Paris", "Tokyo"])
-            
+
             assert len(results) == 3
             assert all(isinstance(r, WeatherData) for r in results)
 
@@ -109,7 +110,7 @@ class TestWeatherAPIClient:
         error_mock = MagicMock()
         error_mock.status_code = 404
         error_mock.ok = False
-        
+
         # First succeeds, second fails, third succeeds
         with patch.object(
             client.session,
@@ -117,9 +118,52 @@ class TestWeatherAPIClient:
             side_effect=[mock_response, error_mock, mock_response],
         ):
             results = client.fetch_multiple_cities(["London", "Invalid", "Tokyo"])
-            
+
             # Should have 2 results (skipping the failed one)
             assert len(results) == 2
+
+    @pytest.mark.unit
+    def test_retry_config_defaults(self, client):
+        """Retry/timeout pull their defaults from settings."""
+        assert client.max_retries == 3
+        assert client.backoff_factor == 1.0
+        assert client.timeout == 30
+
+        retry = client.session.get_adapter("https://example.com").max_retries
+        assert retry.total == 3
+        assert retry.backoff_factor == 1.0
+        assert 429 in retry.status_forcelist
+
+    @pytest.mark.unit
+    def test_retry_config_is_settings_driven(self):
+        """Overriding the env vars changes the session's retry behaviour."""
+        from data_pipeline.config import get_settings
+
+        get_settings.cache_clear()
+        try:
+            with patch.dict(
+                "os.environ",
+                {
+                    "OPENWEATHER_API_KEY": "k",
+                    "API_MAX_RETRIES": "5",
+                    "API_BACKOFF_FACTOR": "2.5",
+                    "API_TIMEOUT_SECONDS": "10",
+                },
+            ):
+                c = WeatherAPIClient()
+                assert c.max_retries == 5
+                assert c.backoff_factor == 2.5
+                assert c.timeout == 10
+                assert c.session.get_adapter("https://x.com").max_retries.total == 5
+        finally:
+            get_settings.cache_clear()
+
+    @pytest.mark.unit
+    def test_request_uses_configured_timeout(self, client, mock_response):
+        """fetch_weather passes the configured timeout to the session."""
+        with patch.object(client.session, "get", return_value=mock_response) as mock_get:
+            client.fetch_weather("London")
+            assert mock_get.call_args.kwargs["timeout"] == client.timeout
 
     @pytest.mark.unit
     def test_weather_data_to_dict(self):
@@ -143,9 +187,9 @@ class TestWeatherAPIClient:
             sunset=datetime(2024, 1, 30, 17, 0, tzinfo=timezone.utc),
             raw_response={},
         )
-        
+
         result = weather.to_dict()
-        
+
         assert result["city"] == "London"
         assert result["temperature_celsius"] == 12.0
         assert "ingested_at" in result

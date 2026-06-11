@@ -95,6 +95,12 @@ class WeatherAPIClient:
                 "OpenWeather API key is required. Set OPENWEATHER_API_KEY environment variable."
             )
 
+        # Retry/timeout behaviour is settings-driven so it can be tuned per
+        # environment (e.g. more retries in CI, longer timeout behind a proxy).
+        self.max_retries = settings.api_max_retries
+        self.backoff_factor = settings.api_backoff_factor
+        self.timeout = settings.api_timeout_seconds
+
         # Configure session with retry logic
         self.session = self._create_session()
 
@@ -102,10 +108,10 @@ class WeatherAPIClient:
         """Create a requests session with retry configuration."""
         session = requests.Session()
 
-        # Exponential backoff retry strategy
+        # Exponential backoff retry strategy (e.g. 1s, 2s, 4s with factor 1.0)
         retry_strategy = Retry(
-            total=3,
-            backoff_factor=1,  # 1s, 2s, 4s
+            total=self.max_retries,
+            backoff_factor=self.backoff_factor,
             status_forcelist=[429, 500, 502, 503, 504],
             allowed_methods=["GET"],
             raise_on_status=False,
@@ -143,7 +149,7 @@ class WeatherAPIClient:
             response = self.session.get(
                 self.BASE_URL,
                 params=params,
-                timeout=self.DEFAULT_TIMEOUT,
+                timeout=self.timeout,
             )
             elapsed = time.time() - start_time
             logger.debug(f"API response received in {elapsed:.2f}s")
