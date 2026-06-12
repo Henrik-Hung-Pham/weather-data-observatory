@@ -34,3 +34,7 @@ terraform apply
   for anything shared/long-lived.
 - The `validate-infrastructure` job in `.github/workflows/deploy.yml` runs
   `terraform fmt -check` and `terraform validate` against this directory.
+- Older Terraform releases fail `terraform init` with `openpgp: key expired`
+  because they can't handle HashiCorp's renewed provider-signing key. CI pins
+  1.15.6, which is verified to work; use it (or newer) locally if you hit
+  that error.
