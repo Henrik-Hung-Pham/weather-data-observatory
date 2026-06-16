@@ -84,6 +84,16 @@ class Settings(BaseSettings):
         description="Log output format: text (human) or json (structured)",
     )
 
+    # Alerting
+    alerts_enabled: bool = Field(
+        default=False,
+        description="Enable Slack alerts on pipeline failure / quality-gate block",
+    )
+    slack_webhook_url: str = Field(
+        default="",
+        description="Slack Incoming Webhook URL for alerts",
+    )
+
     @property
     def cities_list(self) -> list[str]:
         """Parse comma-separated cities into a list."""
