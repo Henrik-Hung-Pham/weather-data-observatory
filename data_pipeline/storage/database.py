@@ -562,14 +562,10 @@ class DatabaseManager:
                     "last_run_at": mapping["last_run_at"],
                     "total_runs": total_runs,
                     "avg_duration_seconds": (
-                        round(float(avg_duration), 2)
-                        if avg_duration is not None
-                        else None
+                        round(float(avg_duration), 2) if avg_duration is not None else None
                     ),
                     "success_rate": (
-                        round(float(success_rate), 2)
-                        if success_rate is not None
-                        else None
+                        round(float(success_rate), 2) if success_rate is not None else None
                     ),
                 }
 
