@@ -49,6 +49,11 @@ An end-to-end **Data Quality Platform** demonstrating production-ready data pipe
 - **Configurable severity** - `warn` mode logs issues, `block` mode stops the pipeline
 - **Great Expectations integration** for declarative data validation
 
+### 🔁 Self-Healing
+- **Record-level quarantine** - records that fail Silver cleaning/validation are
+  routed to a `quarantine` (dead-letter) prefix instead of being dropped, so the
+  run continues with the valid subset and rejected data stays auditable
+
 ### 📊 Monitoring Dashboard
 - **Real-time weather visualization**
 - **Data quality metrics** (% passing validation)
@@ -218,6 +223,23 @@ SLACK_WEBHOOK_URL=https://hooks.slack.com/services/XXX/YYY/ZZZ
 ```
 
 See [`data_pipeline/alerting.py`](data_pipeline/alerting.py).
+
+---
+
+## 🔁 Self-Healing (Quarantine)
+
+The Silver transformer validates each record (required fields + value ranges).
+Rather than silently dropping rejects, it routes them to a `quarantine`
+dead-letter prefix in the data lake — tagged with the rejection reason and a
+timestamp — and the run **self-heals** by continuing with the valid subset.
+Quarantining is best-effort: a storage failure is logged, never fatal.
+
+```env
+QUARANTINE_ENABLED=true   # set false to drop rejects instead
+```
+
+See `_quarantine` in
+[`data_pipeline/transformation/silver.py`](data_pipeline/transformation/silver.py).
 
 ---
 

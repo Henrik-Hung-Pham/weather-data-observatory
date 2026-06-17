@@ -94,6 +94,13 @@ class Settings(BaseSettings):
         description="Slack Incoming Webhook URL for alerts",
     )
 
+    # Self-healing
+    quarantine_enabled: bool = Field(
+        default=True,
+        description="Route records that fail Silver cleaning to a quarantine prefix "
+        "instead of dropping them, so the pipeline self-heals and bad data is auditable",
+    )
+
     @property
     def cities_list(self) -> list[str]:
         """Parse comma-separated cities into a list."""
