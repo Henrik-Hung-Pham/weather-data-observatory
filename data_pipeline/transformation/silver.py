@@ -10,6 +10,7 @@ from typing import Any
 
 import pandas as pd
 
+from data_pipeline.schema import SILVER_FIELD_TYPES
 from data_pipeline.storage import DataLakeStorage
 
 logger = logging.getLogger(__name__)
@@ -31,28 +32,10 @@ class SilverTransformer:
     - Data type conversions
     """
 
-    # Expected schema for Silver layer.
-    # Must match the keys produced by _clean_record() below, including the
-    # underscore-prefixed metadata fields that downstream consumers may use.
-    SCHEMA = {
-        "city": str,
-        "country": str,
-        "temperature_celsius": float,
-        "feels_like_celsius": float,
-        "humidity": int,
-        "pressure": int,
-        "wind_speed": float,
-        "wind_direction": int,
-        "weather_condition": str,
-        "weather_description": str,
-        "clouds_percentage": int,
-        "visibility": int,
-        "timestamp": str,  # ISO format
-        "sunrise": str,
-        "sunset": str,
-        "_transformed_at": str,  # ISO format metadata
-        "_source_layer": str,
-    }
+    # Expected schema for Silver layer, sourced from the canonical schema
+    # module (data_pipeline/schema.py). Must match the keys produced by
+    # _clean_record() below, including the underscore-prefixed metadata fields.
+    SCHEMA = SILVER_FIELD_TYPES
 
     # Valid ranges for data validation
     VALID_RANGES = {
@@ -116,8 +99,9 @@ class SilverTransformer:
 
         if errors:
             logger.warning(f"{len(errors)} records failed transformation")
-            # Store failed records for audit
-            self._log_errors(errors)
+            # Self-heal: isolate bad records instead of silently dropping them,
+            # so the run continues with the valid subset and rejects stay auditable.
+            self._quarantine(errors)
 
         logger.info(f"Successfully transformed {len(transformed)} records")
         return transformed
@@ -232,6 +216,52 @@ class SilverTransformer:
         """Log transformation errors for debugging."""
         for error in errors[:5]:  # Log first 5 errors
             logger.debug(f"Transform error: {error['reason']} for {error['record'].get('city')}")
+
+    def _quarantine(self, errors: list[dict[str, Any]]) -> str | None:
+        """Route rejected records to a quarantine prefix (dead-letter).
+
+        Best-effort: always logs, and additionally persists the rejects to the
+        data lake under a ``quarantine`` prefix (with the rejection reason and
+        a timestamp) when quarantining is enabled and storage is available.
+        A storage failure is logged but never propagates, so isolating bad
+        data cannot itself break the run.
+
+        Args:
+            errors: Records that failed cleaning/validation, each as
+                ``{"record": ..., "reason": ...}``.
+
+        Returns:
+            The quarantine S3 key if records were persisted, else None.
+        """
+        self._log_errors(errors)
+
+        if not errors:
+            return None
+
+        from data_pipeline.config import get_settings
+
+        if not get_settings().quarantine_enabled or self.storage is None:
+            return None
+
+        timestamp = datetime.now(timezone.utc)
+        payload = [
+            {
+                "record": e.get("record"),
+                "reason": e.get("reason"),
+                "quarantined_at": timestamp.isoformat(),
+                "source_layer": "silver",
+            }
+            for e in errors
+        ]
+        filename = f"silver_rejects_{timestamp.strftime('%Y%m%d_%H%M%S')}"
+
+        try:
+            key = self.storage.write_json(payload, "quarantine", filename, timestamp)
+            logger.warning(f"Quarantined {len(errors)} record(s) to {key}")
+            return key
+        except Exception as e:
+            logger.warning(f"Failed to quarantine {len(errors)} record(s): {e}")
+            return None
 
     def transform_from_storage(
         self,

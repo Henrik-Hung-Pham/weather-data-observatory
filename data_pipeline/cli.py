@@ -4,10 +4,11 @@ import argparse
 import logging
 import sys
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
+from data_pipeline.config import get_settings
+from data_pipeline.logging_config import configure_logging
+
+_settings = get_settings()
+configure_logging(_settings.log_level, _settings.log_format)
 logger = logging.getLogger(__name__)
 
 

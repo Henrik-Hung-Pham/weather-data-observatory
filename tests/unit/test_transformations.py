@@ -2,9 +2,33 @@
 
 import pytest
 from datetime import datetime, timezone
+from unittest.mock import MagicMock, patch
 
 from data_pipeline.transformation.silver import SilverTransformer
 from data_pipeline.transformation.gold import GoldTransformer
+
+
+def _valid_bronze_record(**overrides):
+    """A bronze record that passes Silver cleaning + range validation."""
+    record = {
+        "city": "London",
+        "country": "GB",
+        "temperature_celsius": 12.0,
+        "feels_like_celsius": 11.0,
+        "humidity": 65,
+        "pressure": 1013,
+        "wind_speed": 5.0,
+        "wind_direction": 180,
+        "weather_condition": "Clear",
+        "weather_description": "clear sky",
+        "clouds_percentage": 10,
+        "visibility": 10000,
+        "timestamp": "2024-01-30T12:00:00+00:00",
+        "sunrise": "2024-01-30T07:00:00+00:00",
+        "sunset": "2024-01-30T17:00:00+00:00",
+    }
+    record.update(overrides)
+    return record
 
 
 class TestSilverTransformer:
@@ -198,3 +222,82 @@ class TestGoldTransformer:
         
         # London at 12°C should be "mild"
         assert records[0]["temp_category"] == "mild"
+
+
+class TestSilverQuarantine:
+    """Self-healing: rejected records are quarantined, not dropped."""
+
+    @pytest.mark.unit
+    def test_invalid_records_are_quarantined(self):
+        storage = MagicMock()
+        storage.write_json.return_value = "quarantine/weather/2024/01/30/silver_rejects_x.json"
+        transformer = SilverTransformer.__new__(SilverTransformer)
+        transformer.storage = storage
+
+        data = [
+            _valid_bronze_record(),
+            _valid_bronze_record(temperature_celsius=200.0),  # out of range -> rejected
+        ]
+        result = transformer.transform(data)
+
+        # Pipeline self-heals: continues with the valid subset...
+        assert len(result) == 1
+        # ...and the bad record is written to the quarantine prefix.
+        storage.write_json.assert_called_once()
+        call = storage.write_json.call_args
+        payload, layer = call.args[0], call.args[1]
+        assert layer == "quarantine"
+        assert len(payload) == 1
+        assert payload[0]["reason"]
+        assert payload[0]["source_layer"] == "silver"
+
+    @pytest.mark.unit
+    def test_no_quarantine_when_all_valid(self):
+        storage = MagicMock()
+        transformer = SilverTransformer.__new__(SilverTransformer)
+        transformer.storage = storage
+
+        result = transformer.transform([_valid_bronze_record(), _valid_bronze_record()])
+
+        assert len(result) == 2
+        storage.write_json.assert_not_called()
+
+    @pytest.mark.unit
+    def test_quarantine_disabled_skips_write(self):
+        storage = MagicMock()
+        transformer = SilverTransformer.__new__(SilverTransformer)
+        transformer.storage = storage
+
+        with patch(
+            "data_pipeline.config.get_settings",
+            return_value=MagicMock(quarantine_enabled=False),
+        ):
+            result = transformer.transform(
+                [_valid_bronze_record(), _valid_bronze_record(temperature_celsius=200.0)]
+            )
+
+        assert len(result) == 1
+        storage.write_json.assert_not_called()
+
+    @pytest.mark.unit
+    def test_quarantine_storage_failure_is_swallowed(self):
+        storage = MagicMock()
+        storage.write_json.side_effect = RuntimeError("s3 down")
+        transformer = SilverTransformer.__new__(SilverTransformer)
+        transformer.storage = storage
+
+        # Must not raise even though quarantine write fails.
+        result = transformer.transform(
+            [_valid_bronze_record(), _valid_bronze_record(temperature_celsius=200.0)]
+        )
+        assert len(result) == 1
+
+    @pytest.mark.unit
+    def test_quarantine_no_storage_is_safe(self):
+        transformer = SilverTransformer.__new__(SilverTransformer)
+        transformer.storage = None
+
+        result = transformer.transform(
+            [_valid_bronze_record(), _valid_bronze_record(temperature_celsius=200.0)]
+        )
+        assert len(result) == 1

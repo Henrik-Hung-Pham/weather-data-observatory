@@ -49,9 +49,16 @@ An end-to-end **Data Quality Platform** demonstrating production-ready data pipe
 - **Configurable severity** - `warn` mode logs issues, `block` mode stops the pipeline
 - **Great Expectations integration** for declarative data validation
 
+### 🔁 Self-Healing
+- **Record-level quarantine** - records that fail Silver cleaning/validation are
+  routed to a `quarantine` (dead-letter) prefix instead of being dropped, so the
+  run continues with the valid subset and rejected data stays auditable
+
 ### 📊 Monitoring Dashboard
 - **Real-time weather visualization**
 - **Data quality metrics** (% passing validation)
+- **Quality pass-rate trend** (per-layer, last 14 days)
+- **Anomaly detection** — temperature outliers via robust modified z-score (MAD)
 - **Pipeline health status**
 - **Historical trend analysis**
 
@@ -122,6 +129,7 @@ data-observatory/
 │   ├── quality/             # Quality gates & Great Expectations
 │   ├── storage/             # S3 & PostgreSQL abstractions
 │   ├── orchestration/       # Dagster assets/job/schedule (optional)
+│   ├── schema.py            # Canonical schema (single source of truth)
 │   └── pipeline.py          # Main orchestrator
 ├── tests/                   # Comprehensive test suite
 │   ├── unit/                # Unit tests
@@ -189,6 +197,55 @@ Pipeline logs warnings but continues processing.
 
 ---
 
+## 🪵 Logging
+
+Logging is centralised in
+[`data_pipeline/logging_config.py`](data_pipeline/logging_config.py) and
+configured from settings:
+
+```env
+LOG_LEVEL=INFO     # DEBUG | INFO | WARNING | ERROR
+LOG_FORMAT=json    # text (human-readable) | json (structured, one object/line)
+```
+
+In `json` mode every record is emitted as a single JSON line with
+`timestamp`, `level`, `logger`, and `message`, plus any structured context
+passed via `extra={...}` — ready to ship to CloudWatch / Loki / Datadog.
+
+---
+
+## 🔔 Alerting
+
+When a run **fails** or is **blocked** by a quality gate, the pipeline can post
+a Slack notification (best-effort — a delivery failure is logged, never fatal).
+Disabled by default; enable with:
+
+```env
+ALERTS_ENABLED=true
+SLACK_WEBHOOK_URL=https://hooks.slack.com/services/XXX/YYY/ZZZ
+```
+
+See [`data_pipeline/alerting.py`](data_pipeline/alerting.py).
+
+---
+
+## 🔁 Self-Healing (Quarantine)
+
+The Silver transformer validates each record (required fields + value ranges).
+Rather than silently dropping rejects, it routes them to a `quarantine`
+dead-letter prefix in the data lake — tagged with the rejection reason and a
+timestamp — and the run **self-heals** by continuing with the valid subset.
+Quarantining is best-effort: a storage failure is logged, never fatal.
+
+```env
+QUARANTINE_ENABLED=true   # set false to drop rejects instead
+```
+
+See `_quarantine` in
+[`data_pipeline/transformation/silver.py`](data_pipeline/transformation/silver.py).
+
+---
+
 ## 🎯 Demonstrating Senior-Level Skills
 
 This project showcases key capabilities that differentiate a **Senior Data Engineer**:
@@ -240,6 +297,22 @@ gate = QualityGate("my_gate")
 gate.add_rule(custom_rule)
 ```
 
+### Evolving the Schema
+
+The weather schema is defined **once** in
+[`data_pipeline/schema.py`](data_pipeline/schema.py). The Bronze/Silver
+frozensets, the `SilverTransformer` type map, and the validator's default
+Bronze expectations all import from it, so they cannot drift.
+
+Two artifacts can't import Python — the Great Expectations JSON suites and
+`sql/schema.sql` — so they're guarded by
+[`tests/unit/test_schema_consistency.py`](tests/unit/test_schema_consistency.py).
+To add or change a column:
+
+1. Edit `data_pipeline/schema.py` (and `WeatherData` for a new raw field).
+2. Run `pytest tests/unit/test_schema_consistency.py` — failures point you at
+   the JSON suite or SQL DDL that still needs updating.
+
 ---
 
 ## 🗓️ Orchestration (Dagster)
@@ -266,9 +339,9 @@ UI. See [`data_pipeline/orchestration/definitions.py`](data_pipeline/orchestrati
 
 - [x] Orchestration & scheduling — via [Dagster](data_pipeline/orchestration/definitions.py)
 - [ ] Implement data lineage tracking
-- [ ] Add Slack/PagerDuty alerting
+- [x] Add Slack alerting — see [`data_pipeline/alerting.py`](data_pipeline/alerting.py)
 - [ ] Support additional data sources (financial APIs, etc.)
-- [ ] Deploy to AWS with Terraform
+- [x] Deploy to AWS with Terraform — see [`infra/terraform/`](infra/terraform/)
 
 ---
 
