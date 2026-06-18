@@ -57,6 +57,8 @@ An end-to-end **Data Quality Platform** demonstrating production-ready data pipe
 ### 📊 Monitoring Dashboard
 - **Real-time weather visualization**
 - **Data quality metrics** (% passing validation)
+- **Quality pass-rate trend** (per-layer, last 14 days)
+- **Anomaly detection** — temperature outliers via robust modified z-score (MAD)
 - **Pipeline health status**
 - **Historical trend analysis**
 
