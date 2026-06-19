@@ -128,6 +128,7 @@ data-observatory/
 │   ├── transformation/      # Silver/Gold layer transformations
 │   ├── quality/             # Quality gates & Great Expectations
 │   ├── storage/             # S3 & PostgreSQL abstractions
+│   ├── orchestration/       # Dagster assets/job/schedule (optional)
 │   ├── schema.py            # Canonical schema (single source of truth)
 │   └── pipeline.py          # Main orchestrator
 ├── tests/                   # Comprehensive test suite
@@ -314,9 +315,29 @@ To add or change a column:
 
 ---
 
+## 🗓️ Orchestration (Dagster)
+
+The pipeline can run under [Dagster](https://dagster.io/) for scheduling, a run
+UI, retries, and run history — without duplicating any ETL logic (the Dagster
+asset wraps `DataPipeline`). It's an optional extra:
+
+```bash
+pip install -e ".[orchestration]"
+
+# launch the Dagster UI
+dagster dev -m data_pipeline.orchestration.definitions
+```
+
+The schedule defaults to hourly; override with `DAGSTER_CRON` (standard cron).
+A successful run materializes the `weather_observatory` asset with metadata; a
+failed/blocked run raises `dagster.Failure` so it surfaces (and retries) in the
+UI. See [`data_pipeline/orchestration/definitions.py`](data_pipeline/orchestration/definitions.py).
+
+---
+
 ## 📈 Roadmap
 
-- [ ] Add Apache Airflow for scheduling
+- [x] Orchestration & scheduling — via [Dagster](data_pipeline/orchestration/definitions.py)
 - [ ] Implement data lineage tracking
 - [x] Add Slack alerting — see [`data_pipeline/alerting.py`](data_pipeline/alerting.py)
 - [ ] Support additional data sources (financial APIs, etc.)
