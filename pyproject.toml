@@ -72,6 +72,15 @@ strict = true
 warn_return_any = true
 warn_unused_configs = true
 
+# Dagster is an optional extra (see [project.optional-dependencies].orchestration)
+# and is intentionally not installed in the lint/CI environment. There its types
+# resolve to Any, so its decorators (e.g. @asset) are seen as untyped. Relax the
+# untyped-decorator rule for the orchestration module so mypy passes with or
+# without Dagster installed.
+[[tool.mypy.overrides]]
+module = "data_pipeline.orchestration.*"
+disallow_untyped_decorators = false
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
