@@ -349,6 +349,16 @@ UI. See [`data_pipeline/orchestration/definitions.py`](data_pipeline/orchestrati
 
 ---
 
+## 🤝 Contributing & Security
+
+- **Contributing:** see [CONTRIBUTING.md](CONTRIBUTING.md) for dev setup, the
+  CI quality bar, and branch/PR conventions.
+- **Security:** report vulnerabilities privately per [SECURITY.md](SECURITY.md).
+- **Changes:** notable changes are tracked in [CHANGELOG.md](CHANGELOG.md).
+- **Reviews:** PRs are routed to owners via [.github/CODEOWNERS](.github/CODEOWNERS).
+
+---
+
 ## 📜 License
 
 MIT License - see [LICENSE](LICENSE) for details.
