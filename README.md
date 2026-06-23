@@ -42,6 +42,8 @@ An end-to-end **Data Quality Platform** demonstrating production-ready data pipe
 Data-lake objects are written with **Hive-style date partitioning**
 (`…/year=2024/month=01/day=15/…`) so query engines (Athena/Glue/Spark) can
 prune partitions. Set `PARTITION_STYLE=plain` for bare `YYYY/MM/DD/` instead.
+A run stamps **one timestamp** at the start and threads it through every phase,
+so a single run's Bronze/Silver/Gold objects always land in the same partition.
 
 ---
 

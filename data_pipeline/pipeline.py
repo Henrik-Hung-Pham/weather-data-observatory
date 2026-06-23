@@ -144,12 +144,18 @@ class DataPipeline:
         )
         self._current_result = result
 
+        # One timestamp for the whole run, so Bronze/Silver/Gold objects land in
+        # the same date partition and share a consistent run-stamped filename
+        # (instead of each phase calling datetime.now() and possibly straddling
+        # a partition boundary).
+        run_ts = result.started_at
+
         logger.info(f"🚀 Starting pipeline run {self.run_id}")
         logger.info(f"   Cities: {', '.join(cities)}")
 
         try:
             # Phase 1: Ingest to Bronze
-            bronze_data = self._ingest_to_bronze(cities)
+            bronze_data = self._ingest_to_bronze(cities, run_ts)
             result.records_ingested = len(bronze_data)
             result.cities_processed = len({r.get("city", "") for r in bronze_data})
 
@@ -164,7 +170,7 @@ class DataPipeline:
                 raise QualityGateBlocked(bronze_gate_result)
 
             # Phase 3: Transform to Silver
-            silver_data = self._transform_to_silver(bronze_data)
+            silver_data = self._transform_to_silver(bronze_data, run_ts)
             result.records_transformed = len(silver_data)
 
             # Phase 4: Quality check Silver
@@ -175,7 +181,7 @@ class DataPipeline:
                 raise QualityGateBlocked(silver_gate_result)
 
             # Phase 5: Transform to Gold and load to serving layer
-            gold_result = self._transform_to_gold(silver_data)
+            gold_result = self._transform_to_gold(silver_data, run_ts)
             result.records_loaded = gold_result.get("metadata", {}).get("record_count", 0)
 
             # Phase 6: Quality check Gold
@@ -207,7 +213,7 @@ class DataPipeline:
             result.duration_seconds = time.time() - start_time
 
         # Store run result
-        self._persist_run_result(result)
+        self._persist_run_result(result, run_ts)
 
         # Alert on failure / quality-gate block (best-effort, no-op on success)
         self.alerter.alert_pipeline_result(
@@ -231,11 +237,14 @@ class DataPipeline:
 
         return result
 
-    def _ingest_to_bronze(self, cities: list[str]) -> list[dict[str, Any]]:
+    def _ingest_to_bronze(
+        self, cities: list[str], timestamp: datetime
+    ) -> list[dict[str, Any]]:
         """Ingest weather data from API to Bronze layer.
 
         Args:
             cities: List of cities to fetch.
+            timestamp: Single run timestamp used for the partition + filename.
 
         Returns:
             List of raw weather records.
@@ -248,7 +257,6 @@ class DataPipeline:
         bronze_data = [w.to_dict() for w in weather_data]
 
         # Store in Bronze layer
-        timestamp = datetime.now(timezone.utc)
         filename = f"weather_batch_{timestamp.strftime('%Y%m%d_%H%M%S')}"
         self.storage.write_json(bronze_data, "bronze", filename, timestamp)
 
@@ -276,11 +284,14 @@ class DataPipeline:
 
         return gate.evaluate(data, "bronze", ge_results)
 
-    def _transform_to_silver(self, bronze_data: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _transform_to_silver(
+        self, bronze_data: list[dict[str, Any]], timestamp: datetime
+    ) -> list[dict[str, Any]]:
         """Transform Bronze data to Silver layer.
 
         Args:
             bronze_data: Raw Bronze layer records.
+            timestamp: Single run timestamp used for the partition + filename.
 
         Returns:
             Cleaned Silver layer records.
@@ -290,7 +301,6 @@ class DataPipeline:
         silver_data = self.silver_transformer.transform(bronze_data)
 
         # Store in Silver layer
-        timestamp = datetime.now(timezone.utc)
         filename = f"weather_cleaned_{timestamp.strftime('%Y%m%d_%H%M%S')}"
         self.storage.write_json(silver_data, "silver", filename, timestamp)
 
@@ -320,11 +330,14 @@ class DataPipeline:
 
         return gate.evaluate(data, "silver", ge_results)
 
-    def _transform_to_gold(self, silver_data: list[dict[str, Any]]) -> dict[str, Any]:
+    def _transform_to_gold(
+        self, silver_data: list[dict[str, Any]], timestamp: datetime
+    ) -> dict[str, Any]:
         """Transform Silver data to Gold layer and load to serving layer.
 
         Args:
             silver_data: Cleaned Silver layer records.
+            timestamp: Single run timestamp used for the partition + filename.
 
         Returns:
             Gold transformation result with metadata.
@@ -334,7 +347,6 @@ class DataPipeline:
         gold_result = self.gold_transformer.transform(silver_data)
 
         # Store records in Gold layer
-        timestamp = datetime.now(timezone.utc)
         filename = f"weather_gold_{timestamp.strftime('%Y%m%d_%H%M%S')}"
         self.storage.write_json(gold_result["records"], "gold", filename, timestamp)
 
@@ -368,11 +380,13 @@ class DataPipeline:
 
         return gate.evaluate(data, "gold", ge_results)
 
-    def _persist_run_result(self, result: PipelineRunResult) -> None:
+    def _persist_run_result(self, result: PipelineRunResult, timestamp: datetime) -> None:
         """Persist pipeline run result to storage and database.
 
         Args:
             result: Pipeline run result to persist.
+            timestamp: Single run timestamp, so the run-result object lands in
+                the same date partition as the run's data.
         """
         # Store to S3
         try:
@@ -380,6 +394,7 @@ class DataPipeline:
                 result.to_dict(),
                 "gold",
                 f"pipeline_run_{result.run_id}",
+                timestamp,
             )
         except Exception as e:
             logger.warning(f"Failed to persist run result to S3: {e}")
