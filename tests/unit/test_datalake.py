@@ -83,9 +83,7 @@ class TestPartitionPath:
 
         path = storage._get_partition_path("bronze")
         now = datetime.now(timezone.utc)
-        expected_prefix = (
-            f"bronze/weather/year={now.year}/month={now.month:02d}/day={now.day:02d}/"
-        )
+        expected_prefix = f"bronze/weather/year={now.year}/month={now.month:02d}/day={now.day:02d}/"
 
         assert path == expected_prefix
 
@@ -97,9 +95,7 @@ class TestExtractDateFromKey:
     def test_extracts_date_from_partitioned_key(self, mock_s3_client):
         storage = _make_storage(mock_s3_client)
 
-        result = storage._extract_date_from_key(
-            "bronze/weather/2024/01/15/file.json"
-        )
+        result = storage._extract_date_from_key("bronze/weather/2024/01/15/file.json")
 
         assert result == date(2024, 1, 15)
 
@@ -117,9 +113,7 @@ class TestExtractDateFromKey:
     def test_extracts_date_from_silver_key(self, mock_s3_client):
         storage = _make_storage(mock_s3_client)
 
-        result = storage._extract_date_from_key(
-            "silver/weather/2023/12/31/payload.json"
-        )
+        result = storage._extract_date_from_key("silver/weather/2023/12/31/payload.json")
 
         assert result == date(2023, 12, 31)
 
@@ -134,10 +128,7 @@ class TestExtractDateFromKey:
         storage = _make_storage(mock_s3_client)
 
         # 2024/13/40 is not a valid date
-        assert (
-            storage._extract_date_from_key("bronze/weather/2024/13/40/file.json")
-            is None
-        )
+        assert storage._extract_date_from_key("bronze/weather/2024/13/40/file.json") is None
 
 
 class TestWriteJson:
