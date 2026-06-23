@@ -30,7 +30,6 @@ ENV PATH=/root/.local/bin:$PATH
 
 # Copy application code
 COPY data_pipeline/ ./data_pipeline/
-COPY great_expectations/ ./great_expectations/
 COPY sql/ ./sql/
 
 # Create data directories
