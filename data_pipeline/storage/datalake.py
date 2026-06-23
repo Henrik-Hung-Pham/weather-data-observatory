@@ -49,6 +49,7 @@ class DataLakeStorage:
         self.bronze_path = settings.bronze_path
         self.silver_path = settings.silver_path
         self.gold_path = settings.gold_path
+        self.partition_style = settings.partition_style
 
         # Initialize S3 client
         self.s3_client = self._create_client()
@@ -79,7 +80,10 @@ class DataLakeStorage:
             timestamp: Timestamp for partitioning. Uses current time if not provided.
 
         Returns:
-            Partitioned path string (e.g., 'bronze/weather/2024/01/15/').
+            Partitioned path string. With the default ``hive`` style this is
+            'bronze/weather/year=2024/month=01/day=15/' (so query engines like
+            Athena/Glue/Spark can prune partitions); with ``plain`` style it is
+            'bronze/weather/2024/01/15/'.
         """
         if timestamp is None:
             timestamp = datetime.now(timezone.utc)
@@ -90,7 +94,13 @@ class DataLakeStorage:
             "gold": self.gold_path,
         }.get(layer, layer)
 
-        return f"{base_path}/{timestamp.year}/{timestamp.month:02d}/{timestamp.day:02d}/"
+        # Default to hive for instances built without __init__ (e.g. tests).
+        if getattr(self, "partition_style", "hive") == "plain":
+            date_path = f"{timestamp.year}/{timestamp.month:02d}/{timestamp.day:02d}"
+        else:
+            date_path = f"year={timestamp.year}/month={timestamp.month:02d}/day={timestamp.day:02d}"
+
+        return f"{base_path}/{date_path}/"
 
     def write_json(
         self,
@@ -219,25 +229,32 @@ class DataLakeStorage:
     def _extract_date_from_key(self, key: str) -> Any:
         """Extract date from a partitioned S3 key.
 
+        Handles both partition styles:
+        - hive:  'bronze/weather/year=2024/month=01/day=15/file.json'
+        - plain: 'bronze/weather/2024/01/15/file.json'
+
         Args:
-            key: S3 key with date partition (e.g., 'bronze/weather/2024/01/15/file.json').
+            key: S3 key with a date partition.
 
         Returns:
             datetime.date object or None if parsing fails.
         """
-        try:
-            parts = key.split("/")
-            # Find year/month/day pattern
-            for i in range(len(parts) - 2):
-                if parts[i].isdigit() and len(parts[i]) == 4:  # Year
-                    year = int(parts[i])
-                    month = int(parts[i + 1])
-                    day = int(parts[i + 2])
-                    from datetime import date
+        from datetime import date
 
+        def _strip(part: str, prefix: str) -> str:
+            return part[len(prefix) :] if part.startswith(prefix) else part
+
+        parts = key.split("/")
+        for i in range(len(parts) - 2):
+            year_part = _strip(parts[i], "year=")
+            if year_part.isdigit() and len(year_part) == 4:  # Year
+                try:
+                    year = int(year_part)
+                    month = int(_strip(parts[i + 1], "month="))
+                    day = int(_strip(parts[i + 2], "day="))
                     return date(year, month, day)
-        except (ValueError, IndexError):
-            pass
+                except (ValueError, IndexError):
+                    return None
         return None
 
     def delete_object(self, key: str) -> bool:

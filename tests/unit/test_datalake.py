@@ -22,6 +22,7 @@ def _make_storage(mock_s3_client):
     storage.bronze_path = "bronze/weather"
     storage.silver_path = "silver/weather"
     storage.gold_path = "gold/weather"
+    storage.partition_style = "hive"
     storage.s3_client = mock_s3_client
     return storage
 
@@ -36,7 +37,7 @@ class TestPartitionPath:
 
         path = storage._get_partition_path("bronze", ts)
 
-        assert path == "bronze/weather/2024/01/15/"
+        assert path == "bronze/weather/year=2024/month=01/day=15/"
 
     @pytest.mark.unit
     def test_silver_partition_path(self, mock_s3_client):
@@ -45,7 +46,7 @@ class TestPartitionPath:
 
         path = storage._get_partition_path("silver", ts)
 
-        assert path == "silver/weather/2024/07/04/"
+        assert path == "silver/weather/year=2024/month=07/day=04/"
 
     @pytest.mark.unit
     def test_gold_partition_path(self, mock_s3_client):
@@ -54,7 +55,7 @@ class TestPartitionPath:
 
         path = storage._get_partition_path("gold", ts)
 
-        assert path == "gold/weather/2023/12/31/"
+        assert path == "gold/weather/year=2023/month=12/day=31/"
 
     @pytest.mark.unit
     def test_unknown_layer_uses_layer_name(self, mock_s3_client):
@@ -63,7 +64,17 @@ class TestPartitionPath:
 
         path = storage._get_partition_path("platinum", ts)
 
-        assert path == "platinum/2024/02/09/"
+        assert path == "platinum/year=2024/month=02/day=09/"
+
+    @pytest.mark.unit
+    def test_plain_partition_style(self, mock_s3_client):
+        storage = _make_storage(mock_s3_client)
+        storage.partition_style = "plain"
+        ts = datetime(2024, 1, 15, tzinfo=timezone.utc)
+
+        path = storage._get_partition_path("bronze", ts)
+
+        assert path == "bronze/weather/2024/01/15/"
 
     @pytest.mark.unit
     def test_no_timestamp_uses_now(self, mock_s3_client):
@@ -73,7 +84,7 @@ class TestPartitionPath:
         path = storage._get_partition_path("bronze")
         now = datetime.now(timezone.utc)
         expected_prefix = (
-            f"bronze/weather/{now.year}/{now.month:02d}/{now.day:02d}/"
+            f"bronze/weather/year={now.year}/month={now.month:02d}/day={now.day:02d}/"
         )
 
         assert path == expected_prefix
@@ -88,6 +99,16 @@ class TestExtractDateFromKey:
 
         result = storage._extract_date_from_key(
             "bronze/weather/2024/01/15/file.json"
+        )
+
+        assert result == date(2024, 1, 15)
+
+    @pytest.mark.unit
+    def test_extracts_date_from_hive_key(self, mock_s3_client):
+        storage = _make_storage(mock_s3_client)
+
+        result = storage._extract_date_from_key(
+            "bronze/weather/year=2024/month=01/day=15/file.json"
         )
 
         assert result == date(2024, 1, 15)
@@ -129,7 +150,7 @@ class TestWriteJson:
 
         key = storage.write_json(sample_bronze_data, "bronze", "weather_batch", ts)
 
-        assert key == "bronze/weather/2024/01/30/weather_batch.json"
+        assert key == "bronze/weather/year=2024/month=01/day=30/weather_batch.json"
 
         mock_s3_client.put_object.assert_called_once()
         kwargs = mock_s3_client.put_object.call_args.kwargs
