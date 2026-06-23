@@ -1,0 +1,75 @@
+name: Security
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly full scan so newly-disclosed CVEs surface even without a push.
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  secret-scan:
+    name: Secret Scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+  dependency-audit:
+    name: Dependency Audit (pip-audit)
+    runs-on: ubuntu-latest
+    # Advisory while the dependency set is being modernised; promote to a hard
+    # gate (remove continue-on-error) once the audit is clean on main.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install pip-audit
+        run: python -m pip install --upgrade pip pip-audit
+      - name: Audit pinned lock file
+        run: pip-audit -r requirements.lock --strict
+
+  sast:
+    name: SAST (bandit)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install bandit
+        run: python -m pip install --upgrade pip bandit
+      - name: Run bandit (medium+ severity/confidence)
+        run: bandit -r data_pipeline dashboard -ll -ii
+
+  filesystem-scan:
+    name: Filesystem Scan (trivy)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+      - name: Run Trivy filesystem scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"

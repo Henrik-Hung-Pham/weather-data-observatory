@@ -46,6 +46,11 @@ orchestration = [
     "dagster>=1.6,<2.0",
     "dagster-webserver>=1.6,<2.0",
 ]
+security = [
+    "pip-audit>=2.7.0",
+    "bandit>=1.7.0",
+    "pip-tools>=7.4.0",
+]
 
 [project.scripts]
 observatory = "data_pipeline.cli:main"
