@@ -29,6 +29,21 @@ class Settings(BaseSettings):
         default="London,New York,Tokyo,Sydney,Paris",
         description="Comma-separated list of cities to fetch weather for",
     )
+    api_max_retries: int = Field(
+        default=3,
+        ge=0,
+        description="Max retry attempts for transient OpenWeather API failures",
+    )
+    api_backoff_factor: float = Field(
+        default=1.0,
+        ge=0,
+        description="Exponential backoff factor between API retries (seconds)",
+    )
+    api_timeout_seconds: int = Field(
+        default=30,
+        gt=0,
+        description="Per-request timeout for OpenWeather API calls",
+    )
 
     # Database Configuration
     postgres_host: str = Field(default="localhost")
@@ -66,6 +81,30 @@ class Settings(BaseSettings):
 
     # Dashboard Configuration
     streamlit_port: int = Field(default=8501)
+
+    # Observability / Logging
+    log_level: str = Field(default="INFO", description="Root log level (e.g. INFO, DEBUG)")
+    log_format: Literal["text", "json"] = Field(
+        default="text",
+        description="Log output format: text (human) or json (structured)",
+    )
+
+    # Alerting
+    alerts_enabled: bool = Field(
+        default=False,
+        description="Enable Slack alerts on pipeline failure / quality-gate block",
+    )
+    slack_webhook_url: str = Field(
+        default="",
+        description="Slack Incoming Webhook URL for alerts",
+    )
+
+    # Self-healing
+    quarantine_enabled: bool = Field(
+        default=True,
+        description="Route records that fail Silver cleaning to a quarantine prefix "
+        "instead of dropping them, so the pipeline self-heals and bad data is auditable",
+    )
 
     @property
     def cities_list(self) -> list[str]:

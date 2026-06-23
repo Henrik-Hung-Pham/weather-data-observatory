@@ -16,6 +16,8 @@ from great_expectations.core.expectation_configuration import ExpectationConfigu
 from great_expectations.dataset import PandasDataset
 from great_expectations.profile.basic_dataset_profiler import BasicDatasetProfiler
 
+from data_pipeline.schema import BRONZE_COLUMNS
+
 logger = logging.getLogger(__name__)
 
 
@@ -162,25 +164,7 @@ class DataValidator:
             ExpectationConfiguration(
                 expectation_type="expect_table_columns_to_match_set",
                 kwargs={
-                    "column_set": [
-                        "city",
-                        "country",
-                        "temperature_kelvin",
-                        "temperature_celsius",
-                        "feels_like_celsius",
-                        "humidity",
-                        "pressure",
-                        "wind_speed",
-                        "wind_direction",
-                        "weather_condition",
-                        "weather_description",
-                        "clouds_percentage",
-                        "visibility",
-                        "timestamp",
-                        "sunrise",
-                        "sunset",
-                        "ingested_at",
-                    ],
+                    "column_set": list(BRONZE_COLUMNS),
                     "exact_match": False,
                 },
             ),

@@ -307,7 +307,7 @@ class QualityGateBlocked(Exception):  # noqa: N818  intentional name; "Blocked" 
 
 
 def schema_drift_rule(
-    expected_columns: set[str],
+    expected_columns: frozenset[str] | set[str],
 ) -> Callable[[list[dict[str, Any]]], list[QualityIssue]]:
     """Create a rule that detects schema drift.
 

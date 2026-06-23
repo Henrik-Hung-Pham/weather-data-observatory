@@ -11,8 +11,10 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID, uuid4
 
+from data_pipeline.alerting import SlackAlerter
 from data_pipeline.config import get_settings
 from data_pipeline.ingestion import WeatherAPIClient
+from data_pipeline.logging_config import configure_logging
 from data_pipeline.quality import QualityGate, QualityGateResult
 from data_pipeline.quality.gates import (
     QualityGateBlocked,
@@ -21,14 +23,14 @@ from data_pipeline.quality.gates import (
     schema_drift_rule,
 )
 from data_pipeline.quality.validator import DataValidator
+from data_pipeline.schema import BRONZE_SCHEMA as _BRONZE_SCHEMA
+from data_pipeline.schema import SILVER_SCHEMA as _SILVER_SCHEMA
 from data_pipeline.storage import DatabaseManager, DataLakeStorage
 from data_pipeline.transformation import GoldTransformer, SilverTransformer
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
+# Configure logging from settings (text or json, level configurable).
+_settings = get_settings()
+configure_logging(_settings.log_level, _settings.log_format)
 logger = logging.getLogger(__name__)
 
 
@@ -82,51 +84,11 @@ class DataPipeline:
     with integrated data quality checks.
     """
 
-    # Expected schema for quality gates.
-    # Must match the keys produced by WeatherData.to_dict() in
-    # data_pipeline/ingestion/weather_api.py. Keep in sync when fields change.
-    BRONZE_SCHEMA = {
-        "city",
-        "country",
-        "temperature_kelvin",
-        "temperature_celsius",
-        "feels_like_celsius",
-        "humidity",
-        "pressure",
-        "wind_speed",
-        "wind_direction",
-        "weather_condition",
-        "weather_description",
-        "clouds_percentage",
-        "visibility",
-        "timestamp",
-        "sunrise",
-        "sunset",
-        "ingested_at",
-    }
-
-    # Must match the keys produced by SilverTransformer._clean_record() in
-    # data_pipeline/transformation/silver.py (including the underscore-prefixed
-    # metadata fields _transformed_at and _source_layer).
-    SILVER_SCHEMA = {
-        "city",
-        "country",
-        "temperature_celsius",
-        "feels_like_celsius",
-        "humidity",
-        "pressure",
-        "wind_speed",
-        "wind_direction",
-        "weather_condition",
-        "weather_description",
-        "clouds_percentage",
-        "visibility",
-        "timestamp",
-        "sunrise",
-        "sunset",
-        "_transformed_at",
-        "_source_layer",
-    }
+    # Expected schemas for quality gates, sourced from the canonical schema
+    # module (data_pipeline/schema.py). Exposed as class attributes to keep
+    # the existing self.BRONZE_SCHEMA / self.SILVER_SCHEMA interface.
+    BRONZE_SCHEMA = _BRONZE_SCHEMA
+    SILVER_SCHEMA = _SILVER_SCHEMA
 
     def __init__(
         self,
@@ -134,6 +96,7 @@ class DataPipeline:
         storage: DataLakeStorage | None = None,
         database: DatabaseManager | None = None,
         validator: DataValidator | None = None,
+        alerter: SlackAlerter | None = None,
     ):
         """Initialize the data pipeline.
 
@@ -142,6 +105,7 @@ class DataPipeline:
             storage: Data lake storage for Bronze/Silver/Gold layers.
             database: Database manager for serving layer.
             validator: Data validator using Great Expectations.
+            alerter: Alerter for pipeline failures / quality-gate blocks.
         """
         settings = get_settings()
 
@@ -150,6 +114,7 @@ class DataPipeline:
         self.storage = storage or DataLakeStorage()
         self.database = database or DatabaseManager()
         self.validator = validator or DataValidator()
+        self.alerter = alerter or SlackAlerter()
 
         # Transformers
         self.silver_transformer = SilverTransformer(self.storage)
@@ -243,6 +208,18 @@ class DataPipeline:
 
         # Store run result
         self._persist_run_result(result)
+
+        # Alert on failure / quality-gate block (best-effort, no-op on success)
+        self.alerter.alert_pipeline_result(
+            run_id=str(result.run_id),
+            status=result.status,
+            reason=result.quality_gate_reason or result.error_message,
+            stats={
+                "ingested": result.records_ingested,
+                "transformed": result.records_transformed,
+                "loaded": result.records_loaded,
+            },
+        )
 
         logger.info(
             f"📊 Pipeline Summary:\n"
