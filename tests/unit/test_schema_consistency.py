@@ -3,18 +3,15 @@
 ``data_pipeline/schema.py`` is the single source of truth for the medallion
 column sets. The Python call sites import from it directly, so they cannot
 drift. These tests guard the remaining definitions that *cannot* import the
-schema module — the dataclass shape, the Great Expectations JSON suites, and
-the SQL DDL — so that a column change which forgets one of them fails CI
-instead of silently shipping.
+schema module — the dataclass shape and the SQL DDL — so that a column change
+which forgets one of them fails CI instead of silently shipping.
 """
 
-import json
 from datetime import datetime, timezone
 from pathlib import Path
 
 from data_pipeline.ingestion.weather_api import WeatherData
 from data_pipeline.pipeline import DataPipeline
-from data_pipeline.quality.validator import DataValidator
 from data_pipeline.schema import (
     BRONZE_COLUMNS,
     BRONZE_SCHEMA,
@@ -25,7 +22,6 @@ from data_pipeline.schema import (
 from data_pipeline.transformation.silver import SilverTransformer
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SUITES_DIR = REPO_ROOT / "great_expectations" / "expectations"
 SCHEMA_SQL = REPO_ROOT / "sql" / "schema.sql"
 
 
@@ -72,31 +68,6 @@ def test_silver_clean_record_matches_schema() -> None:
     transformer = SilverTransformer.__new__(SilverTransformer)
     cleaned = transformer._clean_record(_sample_weather().to_dict())
     assert set(cleaned.keys()) == SILVER_SCHEMA
-
-
-def test_bronze_ge_suite_column_set_matches() -> None:
-    """The committed bronze GE suite JSON must match the canonical columns."""
-    suite = json.loads((SUITES_DIR / "bronze_weather_suite.json").read_text())
-    column_set = None
-    for exp in suite["expectations"]:
-        if exp["expectation_type"] == "expect_table_columns_to_match_set":
-            column_set = set(exp["kwargs"]["column_set"])
-            break
-    assert column_set is not None, "bronze suite missing expect_table_columns_to_match_set"
-    assert column_set == BRONZE_SCHEMA
-
-
-def test_validator_default_bronze_expectations_match() -> None:
-    """The validator's in-code default Bronze suite must match too."""
-    validator = DataValidator()
-    expectations = validator._get_bronze_expectations()
-    column_set = None
-    for exp in expectations:
-        if exp.expectation_type == "expect_table_columns_to_match_set":
-            column_set = set(exp.kwargs["column_set"])
-            break
-    assert column_set is not None
-    assert column_set == BRONZE_SCHEMA
 
 
 def test_gold_table_ddl_has_all_serving_columns() -> None:

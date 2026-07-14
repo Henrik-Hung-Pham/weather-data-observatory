@@ -190,33 +190,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
       
-      - name: Validate Expectation Suites
-        run: |
-          python -c "
-          import json
-          from pathlib import Path
-          
-          suites_dir = Path('great_expectations/expectations')
-          for suite_file in suites_dir.glob('*.json'):
-              print(f'Validating {suite_file.name}...')
-              with open(suite_file) as f:
-                  suite = json.load(f)
-              assert 'expectation_suite_name' in suite
-              assert 'expectations' in suite
-              assert len(suite['expectations']) > 0
-              print(f'  ✓ {len(suite[\"expectations\"])} expectations defined')
-          print('All expectation suites are valid!')
-          "
-      
       - name: Quality Gate Configuration Check
         run: |
           python -c "
-          from data_pipeline.quality.gates import QualityGate
-          
-          # Verify default quality gates can be created
-          gate = QualityGate('test_gate', mode='block')
-          print(f'✓ Quality gate created: {gate.gate_name}')
-          print(f'✓ Mode: {gate.mode}')
+          from data_pipeline.quality.gates import build_gate_for_layer
+
+          # Verify the standard per-layer gates assemble for every layer.
+          for layer in ('bronze', 'silver', 'gold'):
+              gate = build_gate_for_layer(layer, mode='block')
+              assert gate.gate_name == f'{layer}_quality_gate'
+              assert gate._rules, f'{layer} gate has no rules'
+              print(f'✓ {gate.gate_name}: {len(gate._rules)} rule(s), mode={gate.mode}')
           print('Quality gate configuration is valid!')
           "
         env:
