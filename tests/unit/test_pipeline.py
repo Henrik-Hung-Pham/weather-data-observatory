@@ -17,7 +17,7 @@ from data_pipeline.pipeline import DataPipeline
 
 # ---------------------------------------------------------------------------
 # Test doubles (constructor DI seams: api_client / storage / database /
-# validator / alerter)
+# alerter)
 # ---------------------------------------------------------------------------
 class _FakeWeather:
     """Stand-in for WeatherData — only ``to_dict`` is used by ingestion."""
@@ -65,13 +65,6 @@ class FakeDatabase:
         self.metrics.append({"run_id": run_id, **gate_result})
 
 
-class FakeValidator:
-    """No-op Great Expectations stand-in — always reports success."""
-
-    def validate(self, data, suite_name) -> dict:
-        return {"success": True, "results": [], "statistics": {}}
-
-
 class FakeAlerter:
     def __init__(self) -> None:
         self.alerts: list[dict] = []
@@ -86,7 +79,6 @@ def _make_pipeline(records, storage=None, database=None, alerter=None) -> DataPi
         api_client=FakeAPIClient(records),
         storage=storage or FakeStorage(),
         database=database or FakeDatabase(),
-        validator=FakeValidator(),
         alerter=alerter or FakeAlerter(),
     )
 
