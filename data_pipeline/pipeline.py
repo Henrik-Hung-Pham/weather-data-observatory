@@ -142,7 +142,12 @@ class DataPipeline:
         logger.info(f"   Cities: {', '.join(cities)}")
 
         try:
-            # Phase 1: Ingest to Bronze
+            # Phase 1: Ingest to Bronze.
+            # Bronze is the immutable raw landing zone, so the fetch is always
+            # persisted -- keeping a faithful copy of what the source returned
+            # is the point of the layer, including when it turns out to be bad.
+            # The Bronze gate below decides whether to *proceed*, not whether
+            # to land. Every gate after this one runs before its write.
             bronze_data = self._ingest_to_bronze(cities)
             result.records_ingested = len(bronze_data)
             result.cities_processed = len({r.get("city", "") for r in bronze_data})
@@ -150,35 +155,40 @@ class DataPipeline:
             if not bronze_data:
                 raise ValueError("No data ingested from API")
 
-            # Phase 2: Quality check Bronze
+            # Phase 2: Quality check Bronze (before any transformation)
             bronze_gate_result = self._validate_bronze(bronze_data)
             result.quality_results.append(bronze_gate_result)
 
             if bronze_gate_result.blocked:
                 raise QualityGateBlocked(bronze_gate_result)
 
-            # Phase 3: Transform to Silver
+            # Phase 3: Transform to Silver (in memory -- not yet persisted)
             silver_data = self._transform_to_silver(bronze_data)
             result.records_transformed = len(silver_data)
 
-            # Phase 4: Quality check Silver
+            # Phase 4: Quality check Silver *before* it reaches the lake
             silver_gate_result = self._validate_silver(silver_data)
             result.quality_results.append(silver_gate_result)
 
             if silver_gate_result.blocked:
                 raise QualityGateBlocked(silver_gate_result)
 
-            # Phase 5: Transform to Gold and load to serving layer
-            gold_result = self._transform_to_gold(silver_data)
-            result.records_loaded = gold_result.get("metadata", {}).get("record_count", 0)
+            self._write_silver(silver_data)
 
-            # Phase 6: Quality check Gold
+            # Phase 5: Transform to Gold (in memory -- not yet persisted)
+            gold_result = self._transform_to_gold(silver_data)
             gold_data = gold_result.get("records", [])
+
+            # Phase 6: Quality check Gold *before* it reaches the serving layer
             gold_gate_result = self._validate_gold(gold_data)
             result.quality_results.append(gold_gate_result)
 
             if gold_gate_result.blocked:
                 raise QualityGateBlocked(gold_gate_result)
+
+            # Phase 7: Load Gold to the lake and the serving layer
+            self._load_gold(gold_result)
+            result.records_loaded = gold_result.get("metadata", {}).get("record_count", 0)
 
             # Success!
             result.status = "success"
@@ -264,7 +274,11 @@ class DataPipeline:
         return gate.evaluate(data, "bronze")
 
     def _transform_to_silver(self, bronze_data: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Transform Bronze data to Silver layer.
+        """Transform Bronze data to Silver layer, without persisting it.
+
+        The result is held in memory so the Silver quality gate can veto it
+        before anything reaches the data lake. Use :meth:`_write_silver` to
+        persist once the gate has passed.
 
         Args:
             bronze_data: Raw Bronze layer records.
@@ -276,13 +290,24 @@ class DataPipeline:
 
         silver_data = self.silver_transformer.transform(bronze_data)
 
-        # Store in Silver layer
-        timestamp = datetime.now(timezone.utc)
-        filename = f"weather_cleaned_{timestamp.strftime('%Y%m%d_%H%M%S')}"
-        self.storage.write_json(silver_data, "silver", filename, timestamp)
-
         logger.info(f"   Transformed {len(silver_data)} records to Silver layer")
         return silver_data
+
+    def _write_silver(self, silver_data: list[dict[str, Any]]) -> str:
+        """Persist gate-approved Silver records to the data lake.
+
+        Args:
+            silver_data: Cleaned Silver records that passed the Silver gate.
+
+        Returns:
+            The data-lake key the records were written to.
+        """
+        timestamp = datetime.now(timezone.utc)
+        filename = f"weather_cleaned_{timestamp.strftime('%Y%m%d_%H%M%S')}"
+        key = self.storage.write_json(silver_data, "silver", filename, timestamp)
+
+        logger.info(f"   Wrote {len(silver_data)} records to Silver layer")
+        return key
 
     def _validate_silver(self, data: list[dict[str, Any]]) -> QualityGateResult:
         """Validate Silver layer data.
@@ -299,7 +324,11 @@ class DataPipeline:
         return gate.evaluate(data, "silver")
 
     def _transform_to_gold(self, silver_data: list[dict[str, Any]]) -> dict[str, Any]:
-        """Transform Silver data to Gold layer and load to serving layer.
+        """Transform Silver data to Gold layer, without persisting it.
+
+        The aggregation is held in memory so the Gold quality gate can veto it
+        before anything reaches the data lake or the serving layer. Use
+        :meth:`_load_gold` to persist once the gate has passed.
 
         Args:
             silver_data: Cleaned Silver layer records.
@@ -311,20 +340,34 @@ class DataPipeline:
 
         gold_result = self.gold_transformer.transform(silver_data)
 
+        logger.info(f"   Created {len(gold_result['records'])} Gold layer records")
+        return gold_result
+
+    def _load_gold(self, gold_result: dict[str, Any]) -> None:
+        """Load gate-approved Gold records to the lake and the serving layer.
+
+        Only ever called after the Gold quality gate has passed, so a duplicate
+        key or a null in a required column can no longer reach the serving
+        layer that the dashboard reads.
+
+        Args:
+            gold_result: Gold transformation result that passed the Gold gate.
+        """
+        logger.info("📤 Phase 7: Loading Gold layer")
+
+        records = gold_result["records"]
+
         # Store records in Gold layer
         timestamp = datetime.now(timezone.utc)
         filename = f"weather_gold_{timestamp.strftime('%Y%m%d_%H%M%S')}"
-        self.storage.write_json(gold_result["records"], "gold", filename, timestamp)
+        self.storage.write_json(records, "gold", filename, timestamp)
 
         # Persist to PostgreSQL serving layer
         try:
-            inserted = self.database.insert_weather_data(gold_result["records"])
+            inserted = self.database.insert_weather_data(records)
             logger.info(f"   Loaded {inserted} records to serving layer (PostgreSQL)")
         except Exception as e:
             logger.warning(f"   Failed to load to PostgreSQL: {e}")
-
-        logger.info(f"   Created {len(gold_result['records'])} Gold layer records")
-        return gold_result
 
     def _validate_gold(self, data: list[dict[str, Any]]) -> QualityGateResult:
         """Validate Gold layer data.
