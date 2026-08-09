@@ -129,6 +129,44 @@ def test_run_blocked_when_bronze_gate_critical(sample_bronze_data):
 
 
 # ---------------------------------------------------------------------------
+# Lineage — every gate result must be attributable to its pipeline run
+# ---------------------------------------------------------------------------
+@pytest.mark.unit
+def test_gate_results_carry_the_pipeline_run_id(sample_bronze_data):
+    """Quality metrics must join back to the pipeline run that produced them.
+
+    Regression test: ``QualityGate.__init__`` minted its own ``uuid4()`` and
+    the pipeline never passed its own id in, so each run wrote three
+    ``data_quality_metrics`` rows under three unrelated random UUIDs, none
+    matching ``pipeline_runs.run_id``. "Which gate failed on run X?" was
+    unanswerable.
+    """
+    database = FakeDatabase()
+    pipeline = _make_pipeline(sample_bronze_data, database=database)
+
+    result = pipeline.run(cities=["London", "Paris"])
+
+    assert result.status == "success"
+    # Every gate result is stamped with the owning run.
+    assert {r.run_id for r in result.quality_results} == {result.run_id}
+    # ...and so is every row handed to the database.
+    assert [m["run_id"] for m in database.metrics] == [str(result.run_id)] * 3
+    # The run row uses the same id, so the two tables join.
+    assert database.runs[0]["run_id"] == str(result.run_id)
+
+
+@pytest.mark.unit
+def test_standalone_gate_still_gets_its_own_run_id():
+    """A gate built outside a pipeline run (the CLI) still has an id."""
+    from data_pipeline.quality.gates import build_gate_for_layer
+
+    gate = build_gate_for_layer("bronze", mode="warn")
+
+    assert gate.run_id is not None
+    assert build_gate_for_layer("bronze", mode="warn").run_id != gate.run_id
+
+
+# ---------------------------------------------------------------------------
 # Failed path — an empty ingestion raises and maps to "failed"
 # ---------------------------------------------------------------------------
 @pytest.mark.unit

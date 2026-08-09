@@ -102,17 +102,23 @@ class QualityGate:
         self,
         gate_name: str = "default_gate",
         mode: str | None = None,
+        run_id: UUID | None = None,
     ):
         """Initialize quality gate.
 
         Args:
             gate_name: Name of this quality gate.
             mode: Gate mode - "warn" or "block". Uses settings if not provided.
+            run_id: The pipeline run this gate belongs to. Results are stored
+                under this id, so passing the owning run's id is what makes
+                ``data_quality_metrics`` joinable to ``pipeline_runs``. Falls
+                back to a fresh id for standalone use (e.g. the ``observatory
+                validate`` CLI command, which has no pipeline run).
         """
         settings = get_settings()
         self.gate_name = gate_name
         self.mode = mode or settings.quality_gate_mode
-        self.run_id = uuid4()
+        self.run_id = run_id or uuid4()
         self._rules: list[Callable[[list[dict[str, Any]]], list[QualityIssue]]] = []
 
     def add_rule(
@@ -482,7 +488,11 @@ def unique_check_rule(
     return check_unique
 
 
-def build_gate_for_layer(layer: str, mode: str | None = None) -> "QualityGate":
+def build_gate_for_layer(
+    layer: str,
+    mode: str | None = None,
+    run_id: UUID | None = None,
+) -> "QualityGate":
     """Construct the standard quality gate for a medallion layer.
 
     Centralises the per-layer rule wiring so the pipeline orchestrator and the
@@ -492,6 +502,8 @@ def build_gate_for_layer(layer: str, mode: str | None = None) -> "QualityGate":
     Args:
         layer: One of ``bronze``, ``silver``, ``gold``.
         mode: Gate mode (``warn`` / ``block``). Falls back to settings.
+        run_id: The pipeline run this gate belongs to. Pass the owning run's
+            id so its result can be joined back to ``pipeline_runs``.
 
     Returns:
         A configured :class:`QualityGate`.
@@ -501,7 +513,7 @@ def build_gate_for_layer(layer: str, mode: str | None = None) -> "QualityGate":
     """
     from data_pipeline.schema import BRONZE_SCHEMA, SILVER_SCHEMA
 
-    gate = QualityGate(f"{layer}_quality_gate", mode=mode)
+    gate = QualityGate(f"{layer}_quality_gate", mode=mode, run_id=run_id)
 
     if layer == "bronze":
         gate.add_rule(schema_drift_rule(BRONZE_SCHEMA))

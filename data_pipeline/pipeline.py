@@ -260,7 +260,7 @@ class DataPipeline:
         """
         logger.info("🔍 Validating Bronze layer")
 
-        gate = build_gate_for_layer("bronze", self.settings.quality_gate_mode)
+        gate = build_gate_for_layer("bronze", self.settings.quality_gate_mode, run_id=self.run_id)
         return gate.evaluate(data, "bronze")
 
     def _transform_to_silver(self, bronze_data: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -295,7 +295,7 @@ class DataPipeline:
         """
         logger.info("🔍 Validating Silver layer")
 
-        gate = build_gate_for_layer("silver", self.settings.quality_gate_mode)
+        gate = build_gate_for_layer("silver", self.settings.quality_gate_mode, run_id=self.run_id)
         return gate.evaluate(data, "silver")
 
     def _transform_to_gold(self, silver_data: list[dict[str, Any]]) -> dict[str, Any]:
@@ -337,7 +337,7 @@ class DataPipeline:
         """
         logger.info("🔍 Validating Gold layer")
 
-        gate = build_gate_for_layer("gold", self.settings.quality_gate_mode)
+        gate = build_gate_for_layer("gold", self.settings.quality_gate_mode, run_id=self.run_id)
         return gate.evaluate(data, "gold")
 
     def _persist_run_result(self, result: PipelineRunResult) -> None:
