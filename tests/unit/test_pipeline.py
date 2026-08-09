@@ -144,10 +144,12 @@ def test_run_failed_when_no_data_ingested():
 
 
 # ---------------------------------------------------------------------------
-# Persistence is best-effort — a DB failure must not crash the run
+# Telemetry persistence is best-effort — a DB failure must not crash the run
 # ---------------------------------------------------------------------------
 @pytest.mark.unit
 def test_persistence_failure_does_not_break_run(sample_bronze_data):
+    """Losing the run *receipt* is survivable; the data still loaded."""
+
     class ExplodingDatabase(FakeDatabase):
         def insert_pipeline_run(self, run_result):
             raise RuntimeError("db down")
@@ -161,6 +163,57 @@ def test_persistence_failure_does_not_break_run(sample_bronze_data):
 
     # Run still succeeds despite the metrics/run-row persistence failing.
     assert result.status == "success"
+    assert result.records_loaded == 2
+
+
+# ---------------------------------------------------------------------------
+# records_loaded must report what the serving layer accepted
+# ---------------------------------------------------------------------------
+@pytest.mark.unit
+def test_serving_layer_failure_fails_the_run(sample_bronze_data):
+    """A failed load is a failed run, not a green run with a phantom count.
+
+    Regression test: ``records_loaded`` was taken from the Gold metadata --
+    the count we set out to load -- while the insert exception was swallowed
+    as a warning. A serving layer that was completely down still produced
+    status "success", exit code 0, a green Dagster asset, and a non-zero
+    ``records_loaded``, with zero rows actually written.
+    """
+
+    class BrokenServingLayer(FakeDatabase):
+        def insert_weather_data(self, records):
+            raise RuntimeError("serving layer down")
+
+    alerter = FakeAlerter()
+    pipeline = _make_pipeline(sample_bronze_data, database=BrokenServingLayer(), alerter=alerter)
+
+    result = pipeline.run(cities=["London", "Paris"])
+
+    assert result.status == "failed"
+    assert "serving layer down" in result.error_message
+    assert result.records_loaded == 0
+    # The failure is surfaced, not silently logged.
+    assert alerter.alerts and alerter.alerts[0]["status"] == "failed"
+
+
+@pytest.mark.unit
+def test_records_loaded_reflects_a_partial_load(sample_bronze_data):
+    """When the serving layer accepts fewer rows, the count says so."""
+
+    class PartialServingLayer(FakeDatabase):
+        def insert_weather_data(self, records):
+            accepted = list(records)[:1]
+            self.weather_rows.extend(accepted)
+            return len(accepted)
+
+    pipeline = _make_pipeline(sample_bronze_data, database=PartialServingLayer())
+
+    result = pipeline.run(cities=["London", "Paris"])
+
+    assert result.status == "success"
+    assert result.records_transformed == 2
+    # Two were offered, one landed -- and the run says one.
+    assert result.records_loaded == 1
 
 
 # ---------------------------------------------------------------------------
