@@ -3,7 +3,7 @@
 ## Self-Healing Data Quality Platform
 
 [![CI Pipeline](https://github.com/Henrik-Hung-Pham/weather-data-observatory/actions/workflows/ci.yml/badge.svg)](https://github.com/Henrik-Hung-Pham/weather-data-observatory/actions/workflows/ci.yml)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 An end-to-end **Data Quality Platform** demonstrating production-ready data pipelines with automated validation, quality gates, CI/CD integration, and real-time monitoring. Built with a **Quality-First** approach.
@@ -51,9 +51,11 @@ prune partitions. Set `PARTITION_STYLE=plain` for bare `YYYY/MM/DD/` instead.
 - **Automatic pipeline blocking** when data quality issues are detected
 - **Schema drift detection** - pipeline stops if schema changes unexpectedly
 - **Configurable severity** - `warn` mode logs issues, `block` mode stops the pipeline
-- **Dependency-free quality rules** - schema-drift, null, range, uniqueness and
-  freshness checks live in [`data_pipeline/quality/gates.py`](data_pipeline/quality/gates.py),
-  wired per layer by a single `build_gate_for_layer` factory (no rule drift)
+- **Dependency-free quality rules** - schema-drift, null, range and uniqueness
+  checks live in [`data_pipeline/quality/gates.py`](data_pipeline/quality/gates.py),
+  wired per layer by a single `build_gate_for_layer` factory (no rule drift).
+  A `freshness_rule` is also implemented there but is **not currently wired to
+  any layer** — see the rules table below
 
 ### 🔁 Self-Healing
 - **Record-level quarantine** - records that fail Silver cleaning/validation are
@@ -72,7 +74,11 @@ prune partitions. Set `PARTITION_STYLE=plain` for bare `YYYY/MM/DD/` instead.
 - **Medallion Architecture** (Bronze/Silver/Gold)
 - **ELT pattern** with SQL and Python transformations
 - **Containerized** with Docker and Docker Compose
-- **CI/CD** with GitHub Actions
+- **CI** with GitHub Actions — lint, type check, unit tests, integration tests
+  against real Postgres/LocalStack services, a Docker build, and a quality-gate
+  configuration check. The `deploy.yml` workflow builds and pushes images to
+  GHCR and validates the Terraform; its staging/production steps are
+  placeholders, not a real deployment
 
 ---
 
@@ -80,7 +86,7 @@ prune partitions. Set `PARTITION_STYLE=plain` for bare `YYYY/MM/DD/` instead.
 
 ### Prerequisites
 
-- Python 3.11+
+- Python 3.10 or newer (CI runs 3.11; `.python-version` pins 3.11 locally)
 - Docker & Docker Compose
 - OpenWeather API key ([get free key](https://openweathermap.org/api))
 
@@ -191,15 +197,20 @@ Pipeline logs warnings but continues processing.
 
 ### Built-in Quality Rules
 
-| Rule | Description | Severity |
-|------|-------------|----------|
-| `schema_drift_rule` | Detects missing or extra columns | 🔴 Critical |
-| `null_check_rule` | Checks for null values in required columns | 🟡 Warning* |
-| `range_check_rule` | Validates values are within expected ranges | 🟡 Warning |
-| `unique_check_rule` | Detects duplicate (compound) keys in the serving layer | 🔴 Critical |
-| `freshness_rule` | Checks data is not stale | 🟡 Warning |
+| Rule | Description | Severity | Wired to |
+|------|-------------|----------|----------|
+| `schema_drift_rule` | Detects missing or extra columns | 🔴 Critical (missing) / 🟡 Warning (extra) | Bronze, Silver |
+| `null_check_rule` | Checks for null values in required columns | 🟡 Warning* | Bronze, Silver, Gold |
+| `range_check_rule` | Validates values are within expected ranges | 🟡 Warning | Silver |
+| `unique_check_rule` | Detects duplicate (compound) keys in the serving layer | 🔴 Critical | Gold |
+| `freshness_rule` | Checks data is not stale | 🟡 Warning | **Not wired to any layer** |
 
 *Null check becomes critical if >10% of records affected
+
+Note that in the default `block` mode a 🟡 Warning blocks the pipeline too —
+only `warn` mode lets warnings through. `freshness_rule` is implemented and
+tested but `build_gate_for_layer` does not add it to any layer, so it does not
+run; wiring it up is a one-line change in that factory.
 
 All rules are plain Python (no Great Expectations dependency). The per-layer
 gate is assembled once in `build_gate_for_layer()` and reused by both the
@@ -263,11 +274,11 @@ This project showcases key capabilities that differentiate a **Senior Data Engin
 | Skill Area | How It's Demonstrated |
 |------------|----------------------|
 | **Quality Engineering** | Custom shift-left quality gates with severity-driven pipeline blocking |
-| **Data Architecture** | Medallion architecture, ELT patterns |
-| **Production Readiness** | Docker, CI/CD, comprehensive testing |
-| **Cloud Infrastructure** | AWS S3 (simulated with LocalStack), Terraform |
-| **Observability** | Streamlit dashboard, metrics collection |
-| **Software Engineering** | Type hints, clean code, documentation |
+| **Data Architecture** | Medallion architecture, ELT patterns, one canonical schema module guarded by a consistency test |
+| **Production Readiness** | Docker, CI, unit + service-backed integration tests |
+| **Cloud Infrastructure** | AWS S3 (simulated with LocalStack), Terraform for storage/registry/database provisioning |
+| **Observability** | Streamlit dashboard, structured JSON logging, quality metrics persisted per run |
+| **Software Engineering** | Type hints (mypy strict), clean code, documentation |
 
 ---
 
@@ -350,7 +361,14 @@ UI. See [`data_pipeline/orchestration/definitions.py`](data_pipeline/orchestrati
 - [ ] Implement data lineage tracking
 - [x] Add Slack alerting — see [`data_pipeline/alerting.py`](data_pipeline/alerting.py)
 - [ ] Support additional data sources (financial APIs, etc.)
-- [x] Deploy to AWS with Terraform — see [`infra/terraform/`](infra/terraform/)
+- [x] **Provision** AWS storage with Terraform — see [`infra/terraform/`](infra/terraform/)
+- [ ] **Deploy** to AWS — the Terraform provisions the data lake, two ECR
+      repositories and the RDS serving layer, but there is no compute
+      (ECS/Lambda/Batch), no VPC/security groups, no IAM roles and no remote
+      state backend. Nothing runs the pipeline in AWS yet
+- [ ] Wire `freshness_rule` into a layer, or remove it
+- [ ] Replace the `deploy-staging` / `deploy-production` echo stubs in
+      [`deploy.yml`](.github/workflows/deploy.yml) with a real deployment
 
 ---
 
