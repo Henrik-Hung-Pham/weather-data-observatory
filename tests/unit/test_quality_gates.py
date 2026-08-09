@@ -1,20 +1,20 @@
 """Unit tests for Quality Gates."""
 
-import pytest
 from uuid import uuid4
+
+import pytest
 
 from data_pipeline.quality.gates import (
     QualityGate,
+    QualityGateBlocked,
     QualityGateResult,
     QualityGateStatus,
     QualityIssue,
     QualitySeverity,
-    QualityGateBlocked,
     build_gate_for_layer,
-    schema_drift_rule,
     null_check_rule,
     range_check_rule,
-    freshness_rule,
+    schema_drift_rule,
     unique_check_rule,
 )
 
@@ -42,11 +42,12 @@ class TestQualityGate:
     @pytest.mark.unit
     def test_gate_add_rule(self, gate):
         """Test adding rules to gate."""
+
         def dummy_rule(data):
             return []
-        
+
         result = gate.add_rule(dummy_rule)
-        
+
         assert result is gate  # Method chaining
         assert len(gate._rules) == 1
 
@@ -54,7 +55,7 @@ class TestQualityGate:
     def test_gate_evaluate_passes(self, gate, sample_bronze_data):
         """Test gate passes with valid data."""
         result = gate.evaluate(sample_bronze_data, "bronze")
-        
+
         assert isinstance(result, QualityGateResult)
         assert result.passed is True
         assert result.status == QualityGateStatus.PASSED
@@ -62,16 +63,19 @@ class TestQualityGate:
     @pytest.mark.unit
     def test_gate_evaluate_with_warning(self, warn_gate, sample_bronze_data):
         """Test gate warns but doesn't block in warn mode."""
+
         def warning_rule(data):
-            return [QualityIssue(
-                rule_name="test_warning",
-                severity=QualitySeverity.WARNING,
-                message="Warning message",
-            )]
-        
+            return [
+                QualityIssue(
+                    rule_name="test_warning",
+                    severity=QualitySeverity.WARNING,
+                    message="Warning message",
+                )
+            ]
+
         warn_gate.add_rule(warning_rule)
         result = warn_gate.evaluate(sample_bronze_data, "bronze")
-        
+
         assert result.passed is True
         assert result.status == QualityGateStatus.WARNED
         assert len(result.issues) == 1
@@ -79,16 +83,19 @@ class TestQualityGate:
     @pytest.mark.unit
     def test_gate_evaluate_blocks_on_critical(self, gate, sample_bronze_data):
         """Test gate blocks on critical issues."""
+
         def critical_rule(data):
-            return [QualityIssue(
-                rule_name="test_critical",
-                severity=QualitySeverity.CRITICAL,
-                message="Critical issue",
-            )]
-        
+            return [
+                QualityIssue(
+                    rule_name="test_critical",
+                    severity=QualitySeverity.CRITICAL,
+                    message="Critical issue",
+                )
+            ]
+
         gate.add_rule(critical_rule)
         result = gate.evaluate(sample_bronze_data, "bronze")
-        
+
         assert result.passed is False
         assert result.blocked is True
         assert result.status == QualityGateStatus.BLOCKED
@@ -96,16 +103,19 @@ class TestQualityGate:
     @pytest.mark.unit
     def test_gate_blocks_on_warning_in_block_mode(self, gate, sample_bronze_data):
         """Test gate blocks on warnings when in block mode."""
+
         def warning_rule(data):
-            return [QualityIssue(
-                rule_name="test_warning",
-                severity=QualitySeverity.WARNING,
-                message="Warning message",
-            )]
-        
+            return [
+                QualityIssue(
+                    rule_name="test_warning",
+                    severity=QualitySeverity.WARNING,
+                    message="Warning message",
+                )
+            ]
+
         gate.add_rule(warning_rule)
         result = gate.evaluate(sample_bronze_data, "bronze")
-        
+
         assert result.passed is False
         assert result.status == QualityGateStatus.BLOCKED
 
@@ -113,9 +123,9 @@ class TestQualityGate:
     def test_gate_result_to_dict(self, gate, sample_bronze_data):
         """Test gate result serialization."""
         result = gate.evaluate(sample_bronze_data, "bronze")
-        
+
         result_dict = result.to_dict()
-        
+
         assert "gate_name" in result_dict
         assert "run_id" in result_dict
         assert "status" in result_dict
@@ -131,9 +141,9 @@ class TestQualityRules:
         """Test schema drift rule passes with expected columns."""
         expected = {"city", "country", "temperature_celsius", "humidity"}
         rule = schema_drift_rule(expected)
-        
+
         issues = rule(sample_bronze_data)
-        
+
         # Should pass (no critical issues about missing columns)
         critical_missing = [i for i in issues if "Missing" in i.message]
         assert len(critical_missing) == 0
@@ -143,9 +153,9 @@ class TestQualityRules:
         """Test schema drift rule detects missing columns."""
         expected = {"city", "country", "missing_column"}
         rule = schema_drift_rule(expected)
-        
+
         issues = rule(sample_bronze_data)
-        
+
         assert len(issues) > 0
         assert any("Missing" in i.message for i in issues)
         assert any(i.severity == QualitySeverity.CRITICAL for i in issues)
@@ -154,9 +164,9 @@ class TestQualityRules:
     def test_null_check_rule_passes(self, sample_bronze_data):
         """Test null check passes with no nulls."""
         rule = null_check_rule(["city", "country"])
-        
+
         issues = rule(sample_bronze_data)
-        
+
         assert len(issues) == 0
 
     @pytest.mark.unit
@@ -167,10 +177,10 @@ class TestQualityRules:
             {"city": None, "value": 2},
             {"city": "Paris", "value": None},
         ]
-        
+
         rule = null_check_rule(["city"])
         issues = rule(data)
-        
+
         assert len(issues) == 1
         assert issues[0].affected_records == 1
 
@@ -178,9 +188,9 @@ class TestQualityRules:
     def test_range_check_rule_passes(self, sample_bronze_data):
         """Test range check passes with valid values."""
         rule = range_check_rule("temperature_celsius", -100, 100)
-        
+
         issues = rule(sample_bronze_data)
-        
+
         assert len(issues) == 0
 
     @pytest.mark.unit
@@ -191,10 +201,10 @@ class TestQualityRules:
             {"temperature": 150},  # Out of range
             {"temperature": -50},
         ]
-        
+
         rule = range_check_rule("temperature", -100, 100)
         issues = rule(data)
-        
+
         assert len(issues) == 1
         assert issues[0].affected_records == 1
 
@@ -218,7 +228,7 @@ class TestQualityGateBlocked:
                 )
             ],
         )
-        
+
         exc = QualityGateBlocked(result)
 
         assert "test_gate" in str(exc)
@@ -273,8 +283,16 @@ class TestBuildGateForLayer:
     @pytest.mark.unit
     def test_gold_gate_blocks_on_duplicate_key(self):
         data = [
-            {"city": "London", "temperature_celsius": 12.0, "timestamp": "2024-01-30T12:00:00+00:00"},
-            {"city": "London", "temperature_celsius": 12.0, "timestamp": "2024-01-30T12:00:00+00:00"},
+            {
+                "city": "London",
+                "temperature_celsius": 12.0,
+                "timestamp": "2024-01-30T12:00:00+00:00",
+            },
+            {
+                "city": "London",
+                "temperature_celsius": 12.0,
+                "timestamp": "2024-01-30T12:00:00+00:00",
+            },
         ]
         gate = build_gate_for_layer("gold", mode="block")
         result = gate.evaluate(data, "gold")
