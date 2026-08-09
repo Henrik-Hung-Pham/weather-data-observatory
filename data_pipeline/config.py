@@ -73,7 +73,10 @@ class Settings(BaseSettings):
     )
 
     # Pipeline Configuration
-    ingestion_interval_minutes: int = Field(default=60)
+    #
+    # Note: there is deliberately no ingestion-interval setting here. Nothing
+    # in this package schedules itself; scheduling is owned by the Dagster
+    # orchestration layer and configured with DAGSTER_CRON.
     quality_gate_mode: Literal["warn", "block"] = Field(
         default="block",
         description="Quality gate behavior: warn (log only) or block (stop pipeline)",
