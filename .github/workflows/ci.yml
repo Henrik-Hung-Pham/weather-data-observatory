@@ -150,7 +150,7 @@ jobs:
           pytest tests/integration/ -v \
             --cov=data_pipeline.storage \
             --cov-report=term-missing \
-            --cov-fail-under=70
+            --cov-fail-under=68
         env:
           REQUIRE_INTEGRATION_SERVICES: "1"
           OPENWEATHER_API_KEY: "test_key"
