@@ -146,6 +146,9 @@ jobs:
         #
         # Coverage is scoped to data_pipeline.storage: these tests exist
         # specifically to cover the S3 and SQL code the unit suite cannot.
+        # 68% is the measured figure with the services up -- database.py alone
+        # was at 13% before these tests existed. Ratchet it, don't chase it:
+        # initialize_schema and most error branches remain uncovered.
         run: |
           pytest tests/integration/ -v \
             --cov=data_pipeline.storage \
