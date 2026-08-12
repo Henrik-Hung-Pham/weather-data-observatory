@@ -71,7 +71,8 @@ prune partitions. Set `PARTITION_STYLE=plain` for bare `YYYY/MM/DD/` instead.
 ### 🔄 Modern Data Engineering
 - **Medallion Architecture** (Bronze/Silver/Gold)
 - **ELT pattern** with SQL and Python transformations
-- **Containerized** with Docker and Docker Compose
+- **Containerized** with Docker and Docker Compose — multi-stage build that runs
+  as a **non-root user** with a minimal `.dockerignore` build context
 - **CI/CD** with GitHub Actions
 
 ---

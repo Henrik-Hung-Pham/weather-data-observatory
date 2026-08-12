@@ -1,0 +1,46 @@
+# Keep the build context small and free of secrets / dev cruft.
+
+# VCS
+.git
+.gitignore
+.github
+
+# Python caches / build artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Tests and local data (not needed in the runtime image)
+tests/
+data/
+logs/
+
+# Secrets / local config — never bake these into an image
+.env
+.env.*
+!.env.example
+
+# Infra / docs not needed at runtime
+infra/
+docker-compose.yml
+*.md
+!README.md
+
+# Editor / OS noise
+.idea/
+.vscode/
+.DS_Store
