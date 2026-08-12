@@ -34,7 +34,6 @@ ENV PATH=/home/app/.local/bin:$PATH
 
 # Copy application code (owned by the non-root user).
 COPY --chown=app:app data_pipeline/ ./data_pipeline/
-COPY --chown=app:app great_expectations/ ./great_expectations/
 COPY --chown=app:app sql/ ./sql/
 
 # Create writable data/log directories owned by the app user.

@@ -134,14 +134,12 @@ class QualityGate:
         self,
         data: list[dict[str, Any]],
         layer: str,
-        validation_results: dict[str, Any] | None = None,
     ) -> QualityGateResult:
         """Evaluate all quality rules against the data.
 
         Args:
             data: Data records to evaluate.
             layer: Data layer (bronze, silver, gold).
-            validation_results: Optional Great Expectations validation results.
 
         Returns:
             QualityGateResult with evaluation status.
@@ -167,11 +165,6 @@ class QualityGate:
                         message=f"Rule execution failed: {e}",
                     )
                 )
-
-        # Process Great Expectations results if provided
-        if validation_results:
-            ge_issues = self._process_ge_results(validation_results)
-            issues.extend(ge_issues)
 
         # Determine gate status
         status = self._determine_status(issues)
@@ -201,47 +194,6 @@ class QualityGate:
         self._log_result(result)
 
         return result
-
-    def _process_ge_results(
-        self,
-        validation_results: dict[str, Any],
-    ) -> list[QualityIssue]:
-        """Process Great Expectations validation results.
-
-        Args:
-            validation_results: GE validation result dictionary.
-
-        Returns:
-            List of QualityIssue from failed expectations.
-        """
-        issues: list[QualityIssue] = []
-
-        if not validation_results.get("success", True):
-            results = validation_results.get("results", [])
-
-            for result in results:
-                if not result.get("success", True):
-                    expectation_type = result.get("expectation_config", {}).get(
-                        "expectation_type", "unknown"
-                    )
-
-                    # Map expectation failures to severity
-                    severity = QualitySeverity.WARNING
-                    if "schema" in expectation_type.lower():
-                        severity = QualitySeverity.CRITICAL
-                    elif "null" in expectation_type.lower():
-                        severity = QualitySeverity.WARNING
-
-                    issues.append(
-                        QualityIssue(
-                            rule_name=expectation_type,
-                            severity=severity,
-                            message=f"Expectation failed: {expectation_type}",
-                            details=result.get("result", {}),
-                        )
-                    )
-
-        return issues
 
     def _determine_status(self, issues: list[QualityIssue]) -> QualityGateStatus:
         """Determine gate status based on issues and mode.
@@ -482,3 +434,87 @@ def freshness_rule(
         return []
 
     return check_freshness
+
+
+def unique_check_rule(
+    columns: list[str],
+) -> Callable[[list[dict[str, Any]]], list[QualityIssue]]:
+    """Create a rule that checks a (compound) key is unique across records.
+
+    Replaces Great Expectations' ``expect_compound_columns_to_be_unique`` with
+    a dependency-free equivalent. A duplicate key signals a primary-key /
+    referential-integrity problem in the serving layer, so it is CRITICAL.
+
+    Args:
+        columns: Columns forming the (compound) uniqueness key.
+
+    Returns:
+        Rule function.
+    """
+
+    def check_unique(data: list[dict[str, Any]]) -> list[QualityIssue]:
+        seen: set[tuple[Any, ...]] = set()
+        duplicates: set[tuple[Any, ...]] = set()
+
+        for record in data:
+            key = tuple(record.get(col) for col in columns)
+            if key in seen:
+                duplicates.add(key)
+            else:
+                seen.add(key)
+
+        if duplicates:
+            return [
+                QualityIssue(
+                    rule_name="unique_check",
+                    severity=QualitySeverity.CRITICAL,
+                    message=(f"Compound key {columns} has {len(duplicates)} duplicate value(s)"),
+                    affected_records=len(duplicates),
+                    details={
+                        "columns": columns,
+                        "sample_duplicates": [list(k) for k in list(duplicates)[:5]],
+                    },
+                )
+            ]
+
+        return []
+
+    return check_unique
+
+
+def build_gate_for_layer(layer: str, mode: str | None = None) -> "QualityGate":
+    """Construct the standard quality gate for a medallion layer.
+
+    Centralises the per-layer rule wiring so the pipeline orchestrator and the
+    ``observatory validate`` CLI command share one definition (no rule drift).
+    The expected column sets come from the canonical schema module.
+
+    Args:
+        layer: One of ``bronze``, ``silver``, ``gold``.
+        mode: Gate mode (``warn`` / ``block``). Falls back to settings.
+
+    Returns:
+        A configured :class:`QualityGate`.
+
+    Raises:
+        ValueError: If ``layer`` is not a known medallion layer.
+    """
+    from data_pipeline.schema import BRONZE_SCHEMA, SILVER_SCHEMA
+
+    gate = QualityGate(f"{layer}_quality_gate", mode=mode)
+
+    if layer == "bronze":
+        gate.add_rule(schema_drift_rule(BRONZE_SCHEMA))
+        gate.add_rule(null_check_rule(["city", "timestamp"]))
+    elif layer == "silver":
+        gate.add_rule(schema_drift_rule(SILVER_SCHEMA))
+        gate.add_rule(null_check_rule(["city", "temperature_celsius", "country"]))
+        gate.add_rule(range_check_rule("temperature_celsius", -100, 100))
+        gate.add_rule(range_check_rule("humidity", 0, 100))
+    elif layer == "gold":
+        gate.add_rule(null_check_rule(["city", "temperature_celsius", "timestamp"]))
+        gate.add_rule(unique_check_rule(["city", "timestamp"]))
+    else:
+        raise ValueError(f"Unknown medallion layer: {layer!r}")
+
+    return gate
