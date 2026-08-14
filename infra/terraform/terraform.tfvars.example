@@ -1,0 +1,9 @@
+# Copy to terraform.tfvars and fill in. Do NOT commit terraform.tfvars.
+aws_region            = "us-east-1"
+project_name          = "data-observatory"
+environment           = "staging"
+data_lake_bucket_name = "data-observatory-lake-CHANGE-ME"
+
+# Provide the DB password out-of-band instead of committing it:
+#   export TF_VAR_db_password="..."
+# db_password = "..."

@@ -39,6 +39,10 @@ An end-to-end **Data Quality Platform** demonstrating production-ready data pipe
 | 🥈 **Silver** | Cleaned, normalized, standardized | S3/LocalStack | Data types, ranges, completeness |
 | 🥇 **Gold** | Aggregated, business-ready | PostgreSQL | Uniqueness, referential integrity |
 
+Data-lake objects are written with **Hive-style date partitioning**
+(`…/year=2024/month=01/day=15/…`) so query engines (Athena/Glue/Spark) can
+prune partitions. Set `PARTITION_STYLE=plain` for bare `YYYY/MM/DD/` instead.
+
 ---
 
 ## ✨ Key Features
@@ -47,18 +51,28 @@ An end-to-end **Data Quality Platform** demonstrating production-ready data pipe
 - **Automatic pipeline blocking** when data quality issues are detected
 - **Schema drift detection** - pipeline stops if schema changes unexpectedly
 - **Configurable severity** - `warn` mode logs issues, `block` mode stops the pipeline
-- **Great Expectations integration** for declarative data validation
+- **Dependency-free quality rules** - schema-drift, null, range, uniqueness and
+  freshness checks live in [`data_pipeline/quality/gates.py`](data_pipeline/quality/gates.py),
+  wired per layer by a single `build_gate_for_layer` factory (no rule drift)
+
+### 🔁 Self-Healing
+- **Record-level quarantine** - records that fail Silver cleaning/validation are
+  routed to a `quarantine` (dead-letter) prefix instead of being dropped, so the
+  run continues with the valid subset and rejected data stays auditable
 
 ### 📊 Monitoring Dashboard
 - **Real-time weather visualization**
 - **Data quality metrics** (% passing validation)
+- **Quality pass-rate trend** (per-layer, last 14 days)
+- **Anomaly detection** — temperature outliers via robust modified z-score (MAD)
 - **Pipeline health status**
 - **Historical trend analysis**
 
 ### 🔄 Modern Data Engineering
 - **Medallion Architecture** (Bronze/Silver/Gold)
 - **ELT pattern** with SQL and Python transformations
-- **Containerized** with Docker and Docker Compose
+- **Containerized** with Docker and Docker Compose — multi-stage build that runs
+  as a **non-root user** with a minimal `.dockerignore` build context
 - **CI/CD** with GitHub Actions
 
 ---
@@ -119,15 +133,16 @@ data-observatory/
 ├── data_pipeline/           # Python ETL logic
 │   ├── ingestion/           # Bronze layer - API connectors
 │   ├── transformation/      # Silver/Gold layer transformations
-│   ├── quality/             # Quality gates & Great Expectations
+│   ├── quality/             # Quality gates (custom, dependency-free)
 │   ├── storage/             # S3 & PostgreSQL abstractions
+│   ├── orchestration/       # Dagster assets/job/schedule (optional)
+│   ├── schema.py            # Canonical schema (single source of truth)
 │   └── pipeline.py          # Main orchestrator
 ├── tests/                   # Comprehensive test suite
 │   ├── unit/                # Unit tests
 │   ├── integration/         # Integration tests
 │   └── conftest.py          # Pytest fixtures
 ├── dashboard/               # Streamlit monitoring UI
-├── great_expectations/      # Expectation suites
 ├── sql/                     # Database schema
 ├── infra/                   # Infrastructure as Code
 │   ├── terraform/           # AWS deployment
@@ -182,9 +197,63 @@ Pipeline logs warnings but continues processing.
 | `schema_drift_rule` | Detects missing or extra columns | 🔴 Critical |
 | `null_check_rule` | Checks for null values in required columns | 🟡 Warning* |
 | `range_check_rule` | Validates values are within expected ranges | 🟡 Warning |
+| `unique_check_rule` | Detects duplicate (compound) keys in the serving layer | 🔴 Critical |
 | `freshness_rule` | Checks data is not stale | 🟡 Warning |
 
 *Null check becomes critical if >10% of records affected
+
+All rules are plain Python (no Great Expectations dependency). The per-layer
+gate is assembled once in `build_gate_for_layer()` and reused by both the
+pipeline orchestrator and the `observatory validate` CLI command.
+
+---
+
+## 🪵 Logging
+
+Logging is centralised in
+[`data_pipeline/logging_config.py`](data_pipeline/logging_config.py) and
+configured from settings:
+
+```env
+LOG_LEVEL=INFO     # DEBUG | INFO | WARNING | ERROR
+LOG_FORMAT=json    # text (human-readable) | json (structured, one object/line)
+```
+
+In `json` mode every record is emitted as a single JSON line with
+`timestamp`, `level`, `logger`, and `message`, plus any structured context
+passed via `extra={...}` — ready to ship to CloudWatch / Loki / Datadog.
+
+---
+
+## 🔔 Alerting
+
+When a run **fails** or is **blocked** by a quality gate, the pipeline can post
+a Slack notification (best-effort — a delivery failure is logged, never fatal).
+Disabled by default; enable with:
+
+```env
+ALERTS_ENABLED=true
+SLACK_WEBHOOK_URL=https://hooks.slack.com/services/XXX/YYY/ZZZ
+```
+
+See [`data_pipeline/alerting.py`](data_pipeline/alerting.py).
+
+---
+
+## 🔁 Self-Healing (Quarantine)
+
+The Silver transformer validates each record (required fields + value ranges).
+Rather than silently dropping rejects, it routes them to a `quarantine`
+dead-letter prefix in the data lake — tagged with the rejection reason and a
+timestamp — and the run **self-heals** by continuing with the valid subset.
+Quarantining is best-effort: a storage failure is logged, never fatal.
+
+```env
+QUARANTINE_ENABLED=true   # set false to drop rejects instead
+```
+
+See `_quarantine` in
+[`data_pipeline/transformation/silver.py`](data_pipeline/transformation/silver.py).
 
 ---
 
@@ -218,7 +287,7 @@ This project showcases key capabilities that differentiate a **Senior Data Engin
 
 | Skill Area | How It's Demonstrated |
 |------------|----------------------|
-| **Quality Engineering** | Quality gates with shift-left mindset, Great Expectations |
+| **Quality Engineering** | Custom shift-left quality gates with severity-driven pipeline blocking |
 | **Data Architecture** | Medallion architecture, ELT patterns |
 | **Production Readiness** | Docker, CI/CD, comprehensive testing |
 | **Cloud Infrastructure** | AWS S3 (simulated with LocalStack), Terraform |
@@ -263,15 +332,50 @@ gate = QualityGate("my_gate")
 gate.add_rule(custom_rule)
 ```
 
+### Evolving the Schema
+
+The weather schema is defined **once** in
+[`data_pipeline/schema.py`](data_pipeline/schema.py). The Bronze/Silver
+frozensets and the `SilverTransformer` type map all import from it, so they
+cannot drift.
+
+One artifact can't import Python — `sql/schema.sql` — so it's guarded by
+[`tests/unit/test_schema_consistency.py`](tests/unit/test_schema_consistency.py).
+To add or change a column:
+
+1. Edit `data_pipeline/schema.py` (and `WeatherData` for a new raw field).
+2. Run `pytest tests/unit/test_schema_consistency.py` — failures point you at
+   the SQL DDL that still needs updating.
+
+---
+
+## 🗓️ Orchestration (Dagster)
+
+The pipeline can run under [Dagster](https://dagster.io/) for scheduling, a run
+UI, retries, and run history — without duplicating any ETL logic (the Dagster
+asset wraps `DataPipeline`). It's an optional extra:
+
+```bash
+pip install -e ".[orchestration]"
+
+# launch the Dagster UI
+dagster dev -m data_pipeline.orchestration.definitions
+```
+
+The schedule defaults to hourly; override with `DAGSTER_CRON` (standard cron).
+A successful run materializes the `weather_observatory` asset with metadata; a
+failed/blocked run raises `dagster.Failure` so it surfaces (and retries) in the
+UI. See [`data_pipeline/orchestration/definitions.py`](data_pipeline/orchestration/definitions.py).
+
 ---
 
 ## 📈 Roadmap
 
-- [ ] Add Apache Airflow for scheduling
+- [x] Orchestration & scheduling — via [Dagster](data_pipeline/orchestration/definitions.py)
 - [x] Implement data lineage tracking — see [`data_pipeline/lineage.py`](data_pipeline/lineage.py)
-- [ ] Add Slack/PagerDuty alerting
+- [x] Add Slack alerting — see [`data_pipeline/alerting.py`](data_pipeline/alerting.py)
 - [ ] Support additional data sources (financial APIs, etc.)
-- [ ] Deploy to AWS with Terraform
+- [x] Deploy to AWS with Terraform — see [`infra/terraform/`](infra/terraform/)
 
 ---
 
@@ -284,7 +388,6 @@ MIT License - see [LICENSE](LICENSE) for details.
 ## 🙏 Acknowledgments
 
 - [OpenWeather API](https://openweathermap.org/api) for weather data
-- [Great Expectations](https://greatexpectations.io/) for data validation
 - [Streamlit](https://streamlit.io/) for the monitoring dashboard
 - [LocalStack](https://localstack.cloud/) for AWS simulation
 

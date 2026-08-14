@@ -4,10 +4,11 @@ import argparse
 import logging
 import sys
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
+from data_pipeline.config import get_settings
+from data_pipeline.logging_config import configure_logging
+
+_settings = get_settings()
+configure_logging(_settings.log_level, _settings.log_format)
 logger = logging.getLogger(__name__)
 
 
@@ -112,15 +113,14 @@ def run_dashboard() -> int:
 
 
 def run_validation(args: argparse.Namespace) -> int:
-    """Run data validation for a specific layer."""
-    from data_pipeline.quality.validator import DataValidator
+    """Run the quality gate for a specific layer against its latest data."""
+    from data_pipeline.quality.gates import build_gate_for_layer
     from data_pipeline.storage import DataLakeStorage
 
     logger.info(f"Running validation for {args.layer} layer...")
 
     try:
         storage = DataLakeStorage()
-        validator = DataValidator()
 
         # Get latest data from layer
         keys = storage.list_objects(args.layer)
@@ -136,14 +136,14 @@ def run_validation(args: argparse.Namespace) -> int:
         if not isinstance(data, list):
             data = [data]
 
-        suite_name = f"{args.layer}_weather_suite"
-        result = validator.validate(data, suite_name)
+        gate = build_gate_for_layer(args.layer)
+        result = gate.evaluate(data, args.layer)
 
-        if result["success"]:
-            logger.info(f"✅ Validation passed: {result['statistics']}")
+        if result.passed:
+            logger.info(f"✅ Validation passed: {result.metrics}")
             return 0
         else:
-            logger.error(f"❌ Validation failed: {result['statistics']}")
+            logger.error(f"❌ Validation blocked: {result.metrics}")
             return 1
 
     except Exception as e:

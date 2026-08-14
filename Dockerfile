@@ -24,17 +24,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy installed packages from builder
-COPY --from=builder /root/.local /root/.local
-ENV PATH=/root/.local/bin:$PATH
+# Run as a non-root user (defense-in-depth: a compromised process has no root).
+RUN groupadd --gid 1000 app \
+    && useradd --uid 1000 --gid app --create-home --shell /usr/sbin/nologin app
 
-# Copy application code
-COPY data_pipeline/ ./data_pipeline/
-COPY great_expectations/ ./great_expectations/
-COPY sql/ ./sql/
+# Copy installed packages from the builder into the app user's home.
+COPY --chown=app:app --from=builder /root/.local /home/app/.local
+ENV PATH=/home/app/.local/bin:$PATH
 
-# Create data directories
-RUN mkdir -p /app/data/bronze /app/data/silver /app/data/gold /app/logs
+# Copy application code (owned by the non-root user).
+COPY --chown=app:app data_pipeline/ ./data_pipeline/
+COPY --chown=app:app sql/ ./sql/
+
+# Create writable data/log directories owned by the app user.
+RUN mkdir -p /app/data/bronze /app/data/silver /app/data/gold /app/logs \
+    && chown -R app:app /app
+
+USER app
 
 # Health check - verify the pipeline package is importable.
 # The pipeline container runs as a batch job (no HTTP endpoint), so we
@@ -49,7 +55,7 @@ CMD ["python", "-m", "data_pipeline.pipeline"]
 # Dashboard stage
 FROM production as dashboard
 
-COPY dashboard/ ./dashboard/
+COPY --chown=app:app dashboard/ ./dashboard/
 
 EXPOSE 8501
 
