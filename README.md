@@ -51,7 +51,9 @@ prune partitions. Set `PARTITION_STYLE=plain` for bare `YYYY/MM/DD/` instead.
 - **Automatic pipeline blocking** when data quality issues are detected
 - **Schema drift detection** - pipeline stops if schema changes unexpectedly
 - **Configurable severity** - `warn` mode logs issues, `block` mode stops the pipeline
-- **Great Expectations integration** for declarative data validation
+- **Dependency-free quality rules** - schema-drift, null, range, uniqueness and
+  freshness checks live in [`data_pipeline/quality/gates.py`](data_pipeline/quality/gates.py),
+  wired per layer by a single `build_gate_for_layer` factory (no rule drift)
 
 ### 🔁 Self-Healing
 - **Record-level quarantine** - records that fail Silver cleaning/validation are
@@ -69,7 +71,8 @@ prune partitions. Set `PARTITION_STYLE=plain` for bare `YYYY/MM/DD/` instead.
 ### 🔄 Modern Data Engineering
 - **Medallion Architecture** (Bronze/Silver/Gold)
 - **ELT pattern** with SQL and Python transformations
-- **Containerized** with Docker and Docker Compose
+- **Containerized** with Docker and Docker Compose — multi-stage build that runs
+  as a **non-root user** with a minimal `.dockerignore` build context
 - **CI/CD** with GitHub Actions
 
 ---
@@ -130,7 +133,7 @@ data-observatory/
 ├── data_pipeline/           # Python ETL logic
 │   ├── ingestion/           # Bronze layer - API connectors
 │   ├── transformation/      # Silver/Gold layer transformations
-│   ├── quality/             # Quality gates & Great Expectations
+│   ├── quality/             # Quality gates (custom, dependency-free)
 │   ├── storage/             # S3 & PostgreSQL abstractions
 │   ├── orchestration/       # Dagster assets/job/schedule (optional)
 │   ├── schema.py            # Canonical schema (single source of truth)
@@ -140,7 +143,6 @@ data-observatory/
 │   ├── integration/         # Integration tests
 │   └── conftest.py          # Pytest fixtures
 ├── dashboard/               # Streamlit monitoring UI
-├── great_expectations/      # Expectation suites
 ├── sql/                     # Database schema
 ├── infra/                   # Infrastructure as Code
 │   ├── terraform/           # AWS deployment
@@ -195,9 +197,14 @@ Pipeline logs warnings but continues processing.
 | `schema_drift_rule` | Detects missing or extra columns | 🔴 Critical |
 | `null_check_rule` | Checks for null values in required columns | 🟡 Warning* |
 | `range_check_rule` | Validates values are within expected ranges | 🟡 Warning |
+| `unique_check_rule` | Detects duplicate (compound) keys in the serving layer | 🔴 Critical |
 | `freshness_rule` | Checks data is not stale | 🟡 Warning |
 
 *Null check becomes critical if >10% of records affected
+
+All rules are plain Python (no Great Expectations dependency). The per-layer
+gate is assembled once in `build_gate_for_layer()` and reused by both the
+pipeline orchestrator and the `observatory validate` CLI command.
 
 ---
 
@@ -250,13 +257,37 @@ See `_quarantine` in
 
 ---
 
+## 🧬 Data Lineage
+
+Every run writes a **lineage manifest** to the `lineage/` prefix in the data
+lake (`lineage_<run_id>.json`), tying a run to the exact artifacts it produced:
+
+```json
+{
+  "run_id": "…",
+  "cities": ["London", "Paris"],
+  "started_at": "2026-…",
+  "artifact_count": 3,
+  "artifacts": [
+    {"layer": "bronze", "key": "bronze/weather/year=…/b.json", "record_count": 5},
+    {"layer": "silver", "key": "silver/weather/year=…/s.json", "record_count": 5},
+    {"layer": "gold",   "key": "gold/weather/year=…/g.json",   "record_count": 5}
+  ]
+}
+```
+
+So you can trace which Bronze/Silver/Gold objects belong to a given run. See
+[`data_pipeline/lineage.py`](data_pipeline/lineage.py).
+
+---
+
 ## 🎯 Demonstrating Senior-Level Skills
 
 This project showcases key capabilities that differentiate a **Senior Data Engineer**:
 
 | Skill Area | How It's Demonstrated |
 |------------|----------------------|
-| **Quality Engineering** | Quality gates with shift-left mindset, Great Expectations |
+| **Quality Engineering** | Custom shift-left quality gates with severity-driven pipeline blocking |
 | **Data Architecture** | Medallion architecture, ELT patterns |
 | **Production Readiness** | Docker, CI/CD, comprehensive testing |
 | **Cloud Infrastructure** | AWS S3 (simulated with LocalStack), Terraform |
@@ -311,17 +342,16 @@ gate.add_rule(custom_rule)
 
 The weather schema is defined **once** in
 [`data_pipeline/schema.py`](data_pipeline/schema.py). The Bronze/Silver
-frozensets, the `SilverTransformer` type map, and the validator's default
-Bronze expectations all import from it, so they cannot drift.
+frozensets and the `SilverTransformer` type map all import from it, so they
+cannot drift.
 
-Two artifacts can't import Python — the Great Expectations JSON suites and
-`sql/schema.sql` — so they're guarded by
+One artifact can't import Python — `sql/schema.sql` — so it's guarded by
 [`tests/unit/test_schema_consistency.py`](tests/unit/test_schema_consistency.py).
 To add or change a column:
 
 1. Edit `data_pipeline/schema.py` (and `WeatherData` for a new raw field).
 2. Run `pytest tests/unit/test_schema_consistency.py` — failures point you at
-   the JSON suite or SQL DDL that still needs updating.
+   the SQL DDL that still needs updating.
 
 ---
 
@@ -348,7 +378,7 @@ UI. See [`data_pipeline/orchestration/definitions.py`](data_pipeline/orchestrati
 ## 📈 Roadmap
 
 - [x] Orchestration & scheduling — via [Dagster](data_pipeline/orchestration/definitions.py)
-- [ ] Implement data lineage tracking
+- [x] Implement data lineage tracking — see [`data_pipeline/lineage.py`](data_pipeline/lineage.py)
 - [x] Add Slack alerting — see [`data_pipeline/alerting.py`](data_pipeline/alerting.py)
 - [ ] Support additional data sources (financial APIs, etc.)
 - [x] Deploy to AWS with Terraform — see [`infra/terraform/`](infra/terraform/)
@@ -364,7 +394,6 @@ MIT License - see [LICENSE](LICENSE) for details.
 ## 🙏 Acknowledgments
 
 - [OpenWeather API](https://openweathermap.org/api) for weather data
-- [Great Expectations](https://greatexpectations.io/) for data validation
 - [Streamlit](https://streamlit.io/) for the monitoring dashboard
 - [LocalStack](https://localstack.cloud/) for AWS simulation
 

@@ -111,20 +111,3 @@ class TestPipelineIntegration:
 
         # Should pass since expected schema is subset of actual
         assert result.passed is True
-
-    @pytest.mark.integration
-    def test_data_validation_integration(
-        self,
-        mock_components,
-        sample_silver_data,
-        temp_expectation_suite,
-    ):
-        """Test Great Expectations validation integration."""
-        from data_pipeline.quality.validator import DataValidator
-
-        validator = DataValidator(suites_dir=temp_expectation_suite)
-        result = validator.validate(sample_silver_data, "test_suite")
-
-        assert "success" in result
-        assert "results" in result
-        assert "statistics" in result

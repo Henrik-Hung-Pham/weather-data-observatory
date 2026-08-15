@@ -8,7 +8,7 @@ license = {text = "MIT"}
 authors = [
     {name = "Data Engineer", email = "engineer@example.com"}
 ]
-keywords = ["data-quality", "etl", "data-pipeline", "great-expectations", "medallion-architecture"]
+keywords = ["data-quality", "etl", "data-pipeline", "quality-gates", "medallion-architecture"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -21,7 +21,6 @@ classifiers = [
 dependencies = [
     "requests>=2.31.0",
     "pandas>=2.0.0",
-    "great-expectations>=0.18.0,<1.0",
     "sqlalchemy>=2.0.0",
     "psycopg2-binary>=2.9.0",
     "boto3>=1.34.0",
