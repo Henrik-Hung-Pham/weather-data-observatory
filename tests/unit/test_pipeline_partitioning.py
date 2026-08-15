@@ -43,11 +43,6 @@ class FakeDatabase:
         pass
 
 
-class FakeValidator:
-    def validate(self, data, suite_name) -> dict:
-        return {"success": True, "results": [], "statistics": {}}
-
-
 class FakeAlerter:
     def alert_pipeline_result(self, **kwargs) -> bool:
         return False
@@ -60,7 +55,6 @@ def test_all_layers_share_one_run_timestamp(sample_bronze_data):
         api_client=FakeAPIClient(sample_bronze_data),
         storage=storage,
         database=FakeDatabase(),
-        validator=FakeValidator(),
         alerter=FakeAlerter(),
     )
 
