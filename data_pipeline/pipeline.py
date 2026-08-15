@@ -237,9 +237,7 @@ class DataPipeline:
 
         return result
 
-    def _ingest_to_bronze(
-        self, cities: list[str], timestamp: datetime
-    ) -> list[dict[str, Any]]:
+    def _ingest_to_bronze(self, cities: list[str], timestamp: datetime) -> list[dict[str, Any]]:
         """Ingest weather data from API to Bronze layer.
 
         Args:
