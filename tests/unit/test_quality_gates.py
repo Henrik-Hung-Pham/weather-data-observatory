@@ -10,10 +10,12 @@ from data_pipeline.quality.gates import (
     QualityIssue,
     QualitySeverity,
     QualityGateBlocked,
+    build_gate_for_layer,
     schema_drift_rule,
     null_check_rule,
     range_check_rule,
     freshness_rule,
+    unique_check_rule,
 )
 
 
@@ -218,7 +220,67 @@ class TestQualityGateBlocked:
         )
         
         exc = QualityGateBlocked(result)
-        
+
         assert "test_gate" in str(exc)
         assert "bronze" in str(exc)
         assert exc.result == result
+
+
+class TestUniqueCheckRule:
+    """Tests for the unique_check_rule (replaces GE compound-uniqueness)."""
+
+    @pytest.mark.unit
+    def test_unique_check_passes_when_keys_distinct(self):
+        data = [
+            {"city": "London", "timestamp": "2024-01-30T12:00:00+00:00"},
+            {"city": "London", "timestamp": "2024-01-30T13:00:00+00:00"},
+            {"city": "Paris", "timestamp": "2024-01-30T12:00:00+00:00"},
+        ]
+        issues = unique_check_rule(["city", "timestamp"])(data)
+        assert issues == []
+
+    @pytest.mark.unit
+    def test_unique_check_detects_duplicate_compound_key(self):
+        data = [
+            {"city": "London", "timestamp": "2024-01-30T12:00:00+00:00"},
+            {"city": "London", "timestamp": "2024-01-30T12:00:00+00:00"},
+        ]
+        issues = unique_check_rule(["city", "timestamp"])(data)
+        assert len(issues) == 1
+        assert issues[0].severity == QualitySeverity.CRITICAL
+        assert issues[0].affected_records == 1
+
+    @pytest.mark.unit
+    def test_unique_check_empty_data(self):
+        assert unique_check_rule(["city"])([]) == []
+
+
+class TestBuildGateForLayer:
+    """Tests for the per-layer gate factory shared by pipeline and CLI."""
+
+    @pytest.mark.unit
+    def test_bronze_gate_passes_on_valid_data(self, sample_bronze_data):
+        gate = build_gate_for_layer("bronze", mode="block")
+        result = gate.evaluate(sample_bronze_data, "bronze")
+        assert result.passed is True
+
+    @pytest.mark.unit
+    def test_silver_gate_named_per_layer(self):
+        gate = build_gate_for_layer("silver", mode="warn")
+        assert gate.gate_name == "silver_quality_gate"
+        assert gate.mode == "warn"
+
+    @pytest.mark.unit
+    def test_gold_gate_blocks_on_duplicate_key(self):
+        data = [
+            {"city": "London", "temperature_celsius": 12.0, "timestamp": "2024-01-30T12:00:00+00:00"},
+            {"city": "London", "temperature_celsius": 12.0, "timestamp": "2024-01-30T12:00:00+00:00"},
+        ]
+        gate = build_gate_for_layer("gold", mode="block")
+        result = gate.evaluate(data, "gold")
+        assert result.blocked is True
+
+    @pytest.mark.unit
+    def test_unknown_layer_raises(self):
+        with pytest.raises(ValueError):
+            build_gate_for_layer("platinum")
