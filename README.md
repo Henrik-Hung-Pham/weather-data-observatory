@@ -73,7 +73,8 @@ prune partitions. Set `PARTITION_STYLE=plain` for bare `YYYY/MM/DD/` instead.
 ### 🔄 Modern Data Engineering
 - **Medallion Architecture** (Bronze/Silver/Gold)
 - **ELT pattern** with SQL and Python transformations
-- **Containerized** with Docker and Docker Compose
+- **Containerized** with Docker and Docker Compose — multi-stage build that runs
+  as a **non-root user** with a minimal `.dockerignore` build context
 - **CI** with GitHub Actions — lint, type check, unit tests, integration tests
   against real Postgres/LocalStack services, a Docker build, and a quality-gate
   configuration check. The `deploy.yml` workflow builds and pushes images to
@@ -267,6 +268,30 @@ See `_quarantine` in
 
 ---
 
+## 🧬 Data Lineage
+
+Every run writes a **lineage manifest** to the `lineage/` prefix in the data
+lake (`lineage_<run_id>.json`), tying a run to the exact artifacts it produced:
+
+```json
+{
+  "run_id": "…",
+  "cities": ["London", "Paris"],
+  "started_at": "2026-…",
+  "artifact_count": 3,
+  "artifacts": [
+    {"layer": "bronze", "key": "bronze/weather/year=…/b.json", "record_count": 5},
+    {"layer": "silver", "key": "silver/weather/year=…/s.json", "record_count": 5},
+    {"layer": "gold",   "key": "gold/weather/year=…/g.json",   "record_count": 5}
+  ]
+}
+```
+
+So you can trace which Bronze/Silver/Gold objects belong to a given run. See
+[`data_pipeline/lineage.py`](data_pipeline/lineage.py).
+
+---
+
 ## 🎯 Demonstrating Senior-Level Skills
 
 This project showcases key capabilities that differentiate a **Senior Data Engineer**:
@@ -358,7 +383,7 @@ UI. See [`data_pipeline/orchestration/definitions.py`](data_pipeline/orchestrati
 ## 📈 Roadmap
 
 - [x] Orchestration & scheduling — via [Dagster](data_pipeline/orchestration/definitions.py)
-- [ ] Implement data lineage tracking
+- [x] Implement data lineage tracking — see [`data_pipeline/lineage.py`](data_pipeline/lineage.py)
 - [x] Add Slack alerting — see [`data_pipeline/alerting.py`](data_pipeline/alerting.py)
 - [ ] Support additional data sources (financial APIs, etc.)
 - [x] **Provision** AWS storage with Terraform — see [`infra/terraform/`](infra/terraform/)
