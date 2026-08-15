@@ -1,9 +1,7 @@
 """Pytest configuration and fixtures for Data Observatory tests."""
 
-import json
 import os
-from datetime import datetime, timezone
-from typing import Any, Generator
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -145,35 +143,6 @@ def mock_database():
         
         db = DatabaseManager("postgresql://test:test@localhost/test")
         yield db
-
-
-@pytest.fixture
-def temp_expectation_suite(tmp_path) -> Generator:
-    """Create temporary expectation suite directory."""
-    suite_dir = tmp_path / "expectations"
-    suite_dir.mkdir()
-    
-    # Create a test suite
-    test_suite = {
-        "expectation_suite_name": "test_suite",
-        "expectations": [
-            {
-                "expectation_type": "expect_column_to_exist",
-                "kwargs": {"column": "city"},
-                "meta": {},
-            },
-            {
-                "expectation_type": "expect_column_values_to_not_be_null",
-                "kwargs": {"column": "city"},
-                "meta": {},
-            },
-        ],
-    }
-    
-    with open(suite_dir / "test_suite.json", "w") as f:
-        json.dump(test_suite, f)
-    
-    yield suite_dir
 
 
 # Markers for test categorization

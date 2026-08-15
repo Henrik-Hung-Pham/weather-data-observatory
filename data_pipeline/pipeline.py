@@ -14,16 +14,14 @@ from uuid import UUID, uuid4
 from data_pipeline.alerting import SlackAlerter
 from data_pipeline.config import get_settings
 from data_pipeline.ingestion import WeatherAPIClient
+from data_pipeline.lineage import LineageManifest
 from data_pipeline.logging_config import configure_logging
 from data_pipeline.metrics import PipelineMetrics
-from data_pipeline.quality import QualityGate, QualityGateResult
+from data_pipeline.quality import QualityGateResult
 from data_pipeline.quality.gates import (
     QualityGateBlocked,
-    null_check_rule,
-    range_check_rule,
-    schema_drift_rule,
+    build_gate_for_layer,
 )
-from data_pipeline.quality.validator import DataValidator
 from data_pipeline.schema import BRONZE_SCHEMA as _BRONZE_SCHEMA
 from data_pipeline.schema import SILVER_SCHEMA as _SILVER_SCHEMA
 from data_pipeline.storage import DatabaseManager, DataLakeStorage
@@ -96,7 +94,6 @@ class DataPipeline:
         api_client: WeatherAPIClient | None = None,
         storage: DataLakeStorage | None = None,
         database: DatabaseManager | None = None,
-        validator: DataValidator | None = None,
         alerter: SlackAlerter | None = None,
         metrics: PipelineMetrics | None = None,
     ):
@@ -106,7 +103,6 @@ class DataPipeline:
             api_client: Weather API client for data ingestion.
             storage: Data lake storage for Bronze/Silver/Gold layers.
             database: Database manager for serving layer.
-            validator: Data validator using Great Expectations.
             alerter: Alerter for pipeline failures / quality-gate blocks.
             metrics: Prometheus metrics exporter for run results.
         """
@@ -116,7 +112,6 @@ class DataPipeline:
         self.api_client = api_client or WeatherAPIClient()
         self.storage = storage or DataLakeStorage()
         self.database = database or DatabaseManager()
-        self.validator = validator or DataValidator()
         self.alerter = alerter or SlackAlerter()
         self.metrics = metrics or PipelineMetrics()
 
@@ -127,6 +122,7 @@ class DataPipeline:
         # Current run tracking
         self.run_id = uuid4()
         self._current_result: PipelineRunResult | None = None
+        self._manifest: LineageManifest | None = None
 
     def run(self, cities: list[str] | None = None) -> PipelineRunResult:
         """Execute the full data pipeline.
@@ -147,6 +143,7 @@ class DataPipeline:
             started_at=datetime.now(timezone.utc),
         )
         self._current_result = result
+        self._manifest = LineageManifest(run_id=str(self.run_id), cities=cities)
 
         logger.info(f"🚀 Starting pipeline run {self.run_id}")
         logger.info(f"   Cities: {', '.join(cities)}")
@@ -257,7 +254,8 @@ class DataPipeline:
         # Store in Bronze layer
         timestamp = datetime.now(timezone.utc)
         filename = f"weather_batch_{timestamp.strftime('%Y%m%d_%H%M%S')}"
-        self.storage.write_json(bronze_data, "bronze", filename, timestamp)
+        key = self.storage.write_json(bronze_data, "bronze", filename, timestamp)
+        self._record_artifact("bronze", key, len(bronze_data))
 
         logger.info(f"   Ingested {len(bronze_data)} records to Bronze layer")
         return bronze_data
@@ -273,15 +271,8 @@ class DataPipeline:
         """
         logger.info("🔍 Validating Bronze layer")
 
-        # Great Expectations validation
-        ge_results = self.validator.validate(data, "bronze_weather_suite")
-
-        # Quality gate with custom rules
-        gate = QualityGate("bronze_quality_gate", mode=self.settings.quality_gate_mode)
-        gate.add_rule(schema_drift_rule(self.BRONZE_SCHEMA))
-        gate.add_rule(null_check_rule(["city", "timestamp"]))
-
-        return gate.evaluate(data, "bronze", ge_results)
+        gate = build_gate_for_layer("bronze", self.settings.quality_gate_mode)
+        return gate.evaluate(data, "bronze")
 
     def _transform_to_silver(self, bronze_data: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Transform Bronze data to Silver layer.
@@ -299,7 +290,8 @@ class DataPipeline:
         # Store in Silver layer
         timestamp = datetime.now(timezone.utc)
         filename = f"weather_cleaned_{timestamp.strftime('%Y%m%d_%H%M%S')}"
-        self.storage.write_json(silver_data, "silver", filename, timestamp)
+        key = self.storage.write_json(silver_data, "silver", filename, timestamp)
+        self._record_artifact("silver", key, len(silver_data))
 
         logger.info(f"   Transformed {len(silver_data)} records to Silver layer")
         return silver_data
@@ -315,17 +307,8 @@ class DataPipeline:
         """
         logger.info("🔍 Validating Silver layer")
 
-        # Great Expectations validation
-        ge_results = self.validator.validate(data, "silver_weather_suite")
-
-        # Quality gate with custom rules
-        gate = QualityGate("silver_quality_gate", mode=self.settings.quality_gate_mode)
-        gate.add_rule(schema_drift_rule(self.SILVER_SCHEMA))
-        gate.add_rule(null_check_rule(["city", "temperature_celsius", "country"]))
-        gate.add_rule(range_check_rule("temperature_celsius", -100, 100))
-        gate.add_rule(range_check_rule("humidity", 0, 100))
-
-        return gate.evaluate(data, "silver", ge_results)
+        gate = build_gate_for_layer("silver", self.settings.quality_gate_mode)
+        return gate.evaluate(data, "silver")
 
     def _transform_to_gold(self, silver_data: list[dict[str, Any]]) -> dict[str, Any]:
         """Transform Silver data to Gold layer and load to serving layer.
@@ -343,7 +326,8 @@ class DataPipeline:
         # Store records in Gold layer
         timestamp = datetime.now(timezone.utc)
         filename = f"weather_gold_{timestamp.strftime('%Y%m%d_%H%M%S')}"
-        self.storage.write_json(gold_result["records"], "gold", filename, timestamp)
+        key = self.storage.write_json(gold_result["records"], "gold", filename, timestamp)
+        self._record_artifact("gold", key, len(gold_result["records"]))
 
         # Persist to PostgreSQL serving layer
         try:
@@ -366,14 +350,26 @@ class DataPipeline:
         """
         logger.info("🔍 Validating Gold layer")
 
-        # Great Expectations validation
-        ge_results = self.validator.validate(data, "gold_weather_suite")
+        gate = build_gate_for_layer("gold", self.settings.quality_gate_mode)
+        return gate.evaluate(data, "gold")
 
-        # Quality gate
-        gate = QualityGate("gold_quality_gate", mode=self.settings.quality_gate_mode)
-        gate.add_rule(null_check_rule(["city", "temperature_celsius", "timestamp"]))
+    def _record_artifact(self, layer: str, key: str, record_count: int) -> None:
+        """Record a produced data-lake object in the run's lineage manifest."""
+        if self._manifest is not None:
+            self._manifest.add(layer, key, record_count)
 
-        return gate.evaluate(data, "gold", ge_results)
+    def _persist_lineage_manifest(self) -> None:
+        """Write the run's lineage manifest to the ``lineage`` prefix (best-effort)."""
+        if self._manifest is None:
+            return
+        try:
+            self.storage.write_json(
+                self._manifest.to_dict(),
+                "lineage",
+                f"lineage_{self._manifest.run_id}",
+            )
+        except Exception as e:
+            logger.warning(f"Failed to persist lineage manifest: {e}")
 
     def _persist_run_result(self, result: PipelineRunResult) -> None:
         """Persist pipeline run result to storage and database.
@@ -390,6 +386,9 @@ class DataPipeline:
             )
         except Exception as e:
             logger.warning(f"Failed to persist run result to S3: {e}")
+
+        # Persist end-to-end lineage (which artifacts this run produced)
+        self._persist_lineage_manifest()
 
         # Store pipeline run row in Postgres (best-effort)
         try:
