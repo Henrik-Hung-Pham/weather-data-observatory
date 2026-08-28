@@ -39,6 +39,7 @@ class TestWeatherAPIClient:
     def test_client_requires_api_key(self):
         """Test client raises error without API key."""
         from data_pipeline.config import get_settings
+
         get_settings.cache_clear()
         try:
             with patch.dict("os.environ", {"OPENWEATHER_API_KEY": ""}):
@@ -69,9 +70,11 @@ class TestWeatherAPIClient:
         mock.status_code = 401
         mock.ok = False
 
-        with patch.object(client.session, "get", return_value=mock):
-            with pytest.raises(WeatherAPIError, match="Invalid API key"):
-                client.fetch_weather("London")
+        with (
+            patch.object(client.session, "get", return_value=mock),
+            pytest.raises(WeatherAPIError, match="Invalid API key"),
+        ):
+            client.fetch_weather("London")
 
     @pytest.mark.unit
     def test_fetch_weather_city_not_found(self, client):
@@ -80,9 +83,11 @@ class TestWeatherAPIClient:
         mock.status_code = 404
         mock.ok = False
 
-        with patch.object(client.session, "get", return_value=mock):
-            with pytest.raises(WeatherAPIError, match="City not found"):
-                client.fetch_weather("InvalidCity123")
+        with (
+            patch.object(client.session, "get", return_value=mock),
+            pytest.raises(WeatherAPIError, match="City not found"),
+        ):
+            client.fetch_weather("InvalidCity123")
 
     @pytest.mark.unit
     def test_fetch_weather_rate_limited(self, client):
@@ -91,9 +96,11 @@ class TestWeatherAPIClient:
         mock.status_code = 429
         mock.ok = False
 
-        with patch.object(client.session, "get", return_value=mock):
-            with pytest.raises(WeatherAPIError, match="Rate limit"):
-                client.fetch_weather("London")
+        with (
+            patch.object(client.session, "get", return_value=mock),
+            pytest.raises(WeatherAPIError, match="Rate limit"),
+        ):
+            client.fetch_weather("London")
 
     @pytest.mark.unit
     def test_fetch_multiple_cities(self, client, mock_response):

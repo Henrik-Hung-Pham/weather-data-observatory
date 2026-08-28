@@ -337,15 +337,21 @@ pip install --require-hashes -r requirements.lock
 
 ### Code Quality
 
+CI lints and type-checks the **whole repo** (app, tests, and dashboard) and
+enforces a coverage floor (`tool.coverage.report.fail_under`, currently 50%).
+
 ```bash
-# Linting
-ruff check data_pipeline/
+# Linting (app + tests + dashboard)
+ruff check data_pipeline/ tests/ dashboard/
 
 # Formatting
-ruff format data_pipeline/
+ruff format data_pipeline/ tests/ dashboard/
 
-# Type checking
-mypy data_pipeline/
+# Type checking (ignore_missing_imports is set in pyproject.toml)
+mypy data_pipeline/ dashboard/
+
+# Tests with the enforced coverage floor
+pytest tests/unit/ --cov=data_pipeline
 
 # Security scans (locally)
 pip install -e ".[security]"

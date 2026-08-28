@@ -29,13 +29,15 @@ jobs:
           pip install -r requirements.txt
       
       - name: Run Ruff (linting)
-        run: ruff check data_pipeline/
-      
+        run: ruff check data_pipeline/ tests/ dashboard/
+
       - name: Run Ruff (formatting)
-        run: ruff format --check data_pipeline/
-      
+        run: ruff format --check data_pipeline/ tests/ dashboard/
+
       - name: Run MyPy (type checking)
-        run: mypy data_pipeline/ --ignore-missing-imports
+        # ignore_missing_imports is configured in pyproject.toml so this matches
+        # local runs exactly.
+        run: mypy data_pipeline/ dashboard/
 
   test:
     name: Unit Tests
