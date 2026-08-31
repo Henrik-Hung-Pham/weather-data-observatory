@@ -296,19 +296,67 @@ This project showcases key capabilities that differentiate a **Senior Data Engin
 
 ---
 
+## 🔐 Security & Supply Chain
+
+Dependencies are **pinned and hash-locked** for reproducible builds, and every
+push/PR is scanned by the [`Security`](.github/workflows/security.yml) workflow:
+
+| Check | Tool | Gate |
+|-------|------|------|
+| Secret scanning | gitleaks | 🔴 blocking |
+| Dependency CVEs | pip-audit (against `requirements.lock`) | 🟡 advisory* |
+| Python SAST | bandit | 🟡 advisory* |
+| Filesystem / IaC / secrets | Trivy | 🟡 advisory* |
+
+*Advisory scans report findings but don't fail CI yet; promote them to blocking
+(remove `continue-on-error`) once they're clean on `main`.
+
+[Dependabot](.github/dependabot.yml) opens weekly update PRs for pip packages,
+GitHub Actions, and Docker base images.
+
+### Regenerating the lock file
+
+`requirements.lock` is compiled from `requirements.txt` with fully pinned,
+hashed versions. After changing a dependency, regenerate it:
+
+```bash
+pip install pip-tools
+pip-compile --generate-hashes --strip-extras \
+  --output-file requirements.lock requirements.txt
+```
+
+Reproducible install:
+
+```bash
+pip install --require-hashes -r requirements.lock
+```
+
+---
+
 ## 🛠️ Development
 
 ### Code Quality
 
+CI lints and type-checks the **whole repo** (app, tests, and dashboard) and
+enforces a coverage floor (`tool.coverage.report.fail_under`, currently 50%).
+
 ```bash
-# Linting
-ruff check data_pipeline/
+# Linting (app + tests + dashboard)
+ruff check data_pipeline/ tests/ dashboard/
 
 # Formatting
-ruff format data_pipeline/
+ruff format data_pipeline/ tests/ dashboard/
 
-# Type checking
-mypy data_pipeline/
+# Type checking (ignore_missing_imports is set in pyproject.toml)
+mypy data_pipeline/ dashboard/
+
+# Tests with the enforced coverage floor
+pytest tests/unit/ --cov=data_pipeline
+
+# Security scans (locally)
+pip install -e ".[security]"
+pip-audit -r requirements.lock
+bandit -r data_pipeline dashboard -ll
 ```
 
 ### Adding New Quality Rules
