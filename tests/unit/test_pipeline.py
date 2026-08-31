@@ -74,6 +74,19 @@ class FakeAlerter:
         return False
 
 
+def _data_writes(storage: "FakeStorage", layer: str, filename_prefix: str) -> list[str]:
+    """Filenames of *data* objects written to ``layer``.
+
+    ``_persist_run_result`` files the run receipt under the gold prefix too, so
+    asserting on the layer alone would conflate a receipt with real Gold data.
+    """
+    return [
+        name
+        for written_layer, name in storage.writes
+        if written_layer == layer and name.startswith(filename_prefix)
+    ]
+
+
 def _make_pipeline(records, storage=None, database=None, alerter=None) -> DataPipeline:
     return DataPipeline(
         api_client=FakeAPIClient(records),
@@ -126,6 +139,70 @@ def test_run_blocked_when_bronze_gate_critical(sample_bronze_data):
     assert [r.layer for r in result.quality_results] == ["bronze"]
     # A block triggers an alert.
     assert alerter.alerts and alerter.alerts[0]["status"] == "blocked"
+
+
+# ---------------------------------------------------------------------------
+# Gates run *before* their writes — a block must leave nothing persisted
+# ---------------------------------------------------------------------------
+@pytest.mark.unit
+def test_gold_gate_block_keeps_records_out_of_serving_layer(sample_bronze_data):
+    """A Gold-gate block must not leave rows in the serving layer.
+
+    Regression test: the Gold gate used to run *after* ``_transform_to_gold``
+    had already written to S3 and inserted into PostgreSQL, so a duplicate key
+    was reported as "blocked" while the duplicate rows sat in the table the
+    dashboard reads.
+    """
+    # Two identical records -> duplicate (city, timestamp) -> unique_check
+    # raises a CRITICAL issue at the Gold gate.
+    duplicated = [dict(sample_bronze_data[0]), dict(sample_bronze_data[0])]
+    storage = FakeStorage()
+    database = FakeDatabase()
+    pipeline = _make_pipeline(duplicated, storage=storage, database=database)
+
+    result = pipeline.run(cities=["London"])
+
+    assert result.status == "blocked"
+    # Nothing reached the serving layer.
+    assert database.weather_rows == []
+    # No Gold *data* object was written. (The run receipt is also filed under
+    # the gold prefix, so match on the data filename rather than the layer.)
+    assert not _data_writes(storage, "gold", "weather_gold_")
+    # The gate still ran and was recorded.
+    assert [r.layer for r in result.quality_results] == ["bronze", "silver", "gold"]
+    assert result.records_loaded == 0
+
+
+@pytest.mark.unit
+def test_silver_is_written_only_after_its_gate_passes(sample_bronze_data):
+    """Silver must not be persisted until the Silver gate has passed."""
+    # A Bronze-gate block happens before Silver is even transformed.
+    bad = [{k: v for k, v in rec.items() if k != "timestamp"} for rec in sample_bronze_data]
+    storage = FakeStorage()
+    pipeline = _make_pipeline(bad, storage=storage)
+
+    result = pipeline.run(cities=["London", "Paris"])
+
+    assert result.status == "blocked"
+    # Bronze is the immutable raw landing zone and is always kept...
+    assert _data_writes(storage, "bronze", "weather_batch_")
+    # ...but nothing downstream of the failed gate was persisted.
+    assert not _data_writes(storage, "silver", "weather_cleaned_")
+    assert not _data_writes(storage, "gold", "weather_gold_")
+
+
+@pytest.mark.unit
+def test_success_persists_every_layer_after_its_gate(sample_bronze_data):
+    """On a clean run each layer is still written, just after its gate."""
+    storage = FakeStorage()
+    database = FakeDatabase()
+    pipeline = _make_pipeline(sample_bronze_data, storage=storage, database=database)
+
+    result = pipeline.run(cities=["London", "Paris"])
+
+    assert result.status == "success"
+    assert {layer for layer, _ in storage.writes} >= {"bronze", "silver", "gold"}
+    assert len(database.weather_rows) == 2
 
 
 # ---------------------------------------------------------------------------
