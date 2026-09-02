@@ -191,7 +191,9 @@ class DataPipeline:
 
             # Phase 7: Load Gold to the lake and the serving layer
             self._load_gold(gold_result)
-            result.records_loaded = gold_result.get("metadata", {}).get("record_count", 0)
+            # The count the serving layer actually accepted, not the count we
+            # handed it -- those differ whenever the load fails or is partial.
+            result.records_loaded = gold_result.get("records_loaded", 0)
 
             # Success!
             result.status = "success"
@@ -368,12 +370,19 @@ class DataPipeline:
         key = self.storage.write_json(records, "gold", filename, timestamp)
         self._record_artifact("gold", key, len(records))
 
-        # Persist to PostgreSQL serving layer
-        try:
-            inserted = self.database.insert_weather_data(records)
-            logger.info(f"   Loaded {inserted} records to serving layer (PostgreSQL)")
-        except Exception as e:
-            logger.warning(f"   Failed to load to PostgreSQL: {e}")
+        # Persist to PostgreSQL serving layer.
+        #
+        # This is NOT best-effort. The serving layer is the product -- it is
+        # what the dashboard reads -- so a run that loaded nothing is not a
+        # success. The exception propagates and run() maps it to "failed".
+        # (Persisting *telemetry* about the run stays best-effort; see
+        # _persist_run_result. Losing the receipt is survivable, losing the
+        # data silently is not.)
+        inserted = self.database.insert_weather_data(records)
+        logger.info(f"   Loaded {inserted} records to serving layer (PostgreSQL)")
+
+        # Report what was actually persisted, not what we set out to persist.
+        gold_result["records_loaded"] = inserted
 
     def _validate_gold(self, data: list[dict[str, Any]]) -> QualityGateResult:
         """Validate Gold layer data.
