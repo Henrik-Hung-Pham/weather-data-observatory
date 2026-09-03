@@ -12,6 +12,24 @@ real-cloud counterpart to the LocalStack setup used for local development.
 | `aws_ecr_repository` ×2 | Registries for the pipeline and dashboard images (immutable tags) |
 | `aws_db_instance` (Postgres) | Gold serving layer the dashboard reads from |
 
+## What it does *not* provision
+
+This is storage, a registry and a database — not a running deployment. There is
+deliberately no:
+
+- **Compute.** No ECS/Fargate service, Lambda or Batch job, so nothing here
+  runs the pipeline or serves the dashboard in AWS. The images are built and
+  pushed, but nothing pulls them.
+- **Networking.** No VPC, subnets or security groups, so `aws_db_instance`
+  lands in the account's default VPC. It is `publicly_accessible = false`, but
+  reaching it still depends on whatever that default VPC looks like.
+- **IAM.** No task/execution roles or least-privilege policies for the
+  pipeline's S3 and RDS access.
+- **Remote state.** See the note below.
+
+Treat `terraform apply` here as "the storage layer exists", not "the platform
+is deployed".
+
 ## Usage
 
 ```bash
