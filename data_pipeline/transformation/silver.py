@@ -2,6 +2,23 @@
 
 Transforms raw Bronze layer data into clean, standardized Silver layer data.
 Handles null values, data type conversions, and schema enforcement.
+
+Null policy
+-----------
+Cleaning **never substitutes a value for missing input**. A field that is
+absent or unparseable stays ``None``.
+
+This used to work the other way: ``_safe_float`` returned ``0.0``,
+``_safe_int`` returned ``0``, ``_clean_string`` returned ``""`` and
+``_normalize_timestamp`` returned ``now()``. That fabricated readings -- a
+missing temperature became a plausible 0.0 °C in the serving layer -- and,
+because no nulls survived cleaning, it also guaranteed the Silver gate's
+``null_check_rule`` could never fire. The cleaning step was destroying the
+very signal the next step existed to detect.
+
+Instead, a record missing any of :attr:`SilverTransformer.REQUIRED_FIELDS`
+is quarantined with the specific field named, and the run self-heals with
+the valid subset. Optional fields keep their ``None`` and land as SQL NULL.
 """
 
 import logging
@@ -35,7 +52,15 @@ class SilverTransformer:
     # Expected schema for Silver layer, sourced from the canonical schema
     # module (data_pipeline/schema.py). Must match the keys produced by
     # _clean_record() below, including the underscore-prefixed metadata fields.
+    # The mapped type describes a *present* value; every field is nullable,
+    # because cleaning preserves missing input rather than inventing a value.
     SCHEMA = SILVER_FIELD_TYPES
+
+    # Fields that must carry a real value for a record to be usable. A null
+    # here means the reading is unusable, so the record is quarantined rather
+    # than defaulted -- these back the Silver gate's null_check_rule and the
+    # NOT NULL columns in sql/schema.sql.
+    REQUIRED_FIELDS = ("city", "country", "temperature_celsius", "timestamp")
 
     # Valid ranges for data validation
     VALID_RANGES = {
@@ -79,13 +104,15 @@ class SilverTransformer:
         for record in bronze_data:
             try:
                 clean_record = self._clean_record(record)
-                if self._validate_record(clean_record):
+                reason = self._rejection_reason(clean_record)
+                if reason is None:
                     transformed.append(clean_record)
                 else:
+                    logger.debug(f"Validation failed: {reason}")
                     errors.append(
                         {
                             "record": record,
-                            "reason": "Validation failed",
+                            "reason": reason,
                         }
                     )
             except Exception as e:
@@ -115,18 +142,19 @@ class SilverTransformer:
         Returns:
             Cleaned record matching Silver schema.
         """
-        # Extract and normalize fields
-        cleaned = {
-            "city": self._clean_string(record.get("city", "")),
-            "country": self._clean_string(record.get("country", "Unknown")),
+        # Extract and normalize fields. Missing or unparseable input stays
+        # None -- see the module note on why we never substitute a default.
+        cleaned: dict[str, Any] = {
+            "city": self._clean_string(record.get("city")),
+            "country": self._clean_string(record.get("country")),
             "temperature_celsius": self._safe_float(record.get("temperature_celsius")),
             "feels_like_celsius": self._safe_float(record.get("feels_like_celsius")),
             "humidity": self._safe_int(record.get("humidity")),
             "pressure": self._safe_int(record.get("pressure")),
             "wind_speed": self._safe_float(record.get("wind_speed")),
             "wind_direction": self._safe_int(record.get("wind_direction")),
-            "weather_condition": self._clean_string(record.get("weather_condition", "Unknown")),
-            "weather_description": self._clean_string(record.get("weather_description", "")),
+            "weather_condition": self._clean_string(record.get("weather_condition")),
+            "weather_description": self._clean_string(record.get("weather_description")),
             "clouds_percentage": self._safe_int(record.get("clouds_percentage")),
             "visibility": self._safe_int(record.get("visibility")),
             "timestamp": self._normalize_timestamp(record.get("timestamp")),
@@ -140,34 +168,49 @@ class SilverTransformer:
 
         return cleaned
 
-    def _clean_string(self, value: Any) -> str:
-        """Clean string values - trim whitespace, handle nulls."""
-        if value is None:
-            return ""
-        return str(value).strip()
+    def _clean_string(self, value: Any) -> str | None:
+        """Trim a string value, preserving absence as None.
 
-    def _safe_float(self, value: Any, default: float = 0.0) -> float:
-        """Safely convert to float."""
+        A blank or whitespace-only value is absence, not an empty reading, so
+        it normalizes to None rather than "".
+        """
         if value is None:
-            return default
+            return None
+        cleaned = str(value).strip()
+        return cleaned or None
+
+    def _safe_float(self, value: Any) -> float | None:
+        """Convert to float, or None if absent/unparseable.
+
+        Returns None rather than 0.0: a missing temperature is not 0 °C, and
+        substituting one both fabricates a reading and hides it from the null
+        check downstream.
+        """
+        if value is None:
+            return None
         try:
             return float(value)
         except (ValueError, TypeError):
-            return default
+            return None
 
-    def _safe_int(self, value: Any, default: int = 0) -> int:
-        """Safely convert to int."""
+    def _safe_int(self, value: Any) -> int | None:
+        """Convert to int, or None if absent/unparseable."""
         if value is None:
-            return default
+            return None
         try:
             return int(float(value))
         except (ValueError, TypeError):
-            return default
+            return None
 
-    def _normalize_timestamp(self, value: Any) -> str:
-        """Normalize timestamp to ISO format."""
+    def _normalize_timestamp(self, value: Any) -> str | None:
+        """Normalize a timestamp to ISO format, or None if absent/unparseable.
+
+        Returns None rather than ``now()``: stamping the current time onto a
+        reading with no timestamp silently backdates unknown data to the run
+        time and defeats the freshness check.
+        """
         if value is None:
-            return datetime.now(timezone.utc).isoformat()
+            return None
 
         if isinstance(value, datetime):
             return value.isoformat()
@@ -184,11 +227,37 @@ class SilverTransformer:
         try:
             ts = float(value)
             return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
-        except (ValueError, TypeError):
-            return datetime.now(timezone.utc).isoformat()
+        except (ValueError, TypeError, OSError, OverflowError):
+            return None
+
+    def _rejection_reason(self, record: dict[str, Any]) -> str | None:
+        """Explain why a cleaned record is unusable, or None if it is fine.
+
+        Args:
+            record: Cleaned record to validate.
+
+        Returns:
+            A human-readable reason for rejection, or None when the record is
+            valid. The reason is carried into the quarantine payload so a
+            reject can be triaged without re-running the pipeline.
+        """
+        # Required fields must carry a real value. Previously a null here was
+        # silently defaulted (0.0 / "" / now()), which fabricated a reading
+        # and blinded the Silver gate's null check.
+        for field in self.REQUIRED_FIELDS:
+            if record.get(field) is None:
+                return f"Missing required field '{field}'"
+
+        # Check value ranges
+        for field, (min_val, max_val) in self.VALID_RANGES.items():
+            value = record.get(field)
+            if value is not None and not (min_val <= value <= max_val):
+                return f"{field}={value} outside range [{min_val}, {max_val}]"
+
+        return None
 
     def _validate_record(self, record: dict[str, Any]) -> bool:
-        """Validate a cleaned record against schema and ranges.
+        """Validate a cleaned record against required fields and ranges.
 
         Args:
             record: Cleaned record to validate.
@@ -196,20 +265,10 @@ class SilverTransformer:
         Returns:
             True if record is valid.
         """
-        # Check required fields
-        if not record.get("city"):
-            logger.debug("Validation failed: missing city")
+        reason = self._rejection_reason(record)
+        if reason is not None:
+            logger.debug(f"Validation failed: {reason}")
             return False
-
-        # Check value ranges
-        for field, (min_val, max_val) in self.VALID_RANGES.items():
-            value = record.get(field)
-            if value is not None and not (min_val <= value <= max_val):
-                logger.debug(
-                    f"Validation failed: {field}={value} outside range [{min_val}, {max_val}]"
-                )
-                return False
-
         return True
 
     def _log_errors(self, errors: list[dict[str, Any]]) -> None:
