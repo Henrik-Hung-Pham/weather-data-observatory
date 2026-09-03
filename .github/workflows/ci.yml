@@ -33,16 +33,18 @@ jobs:
       # ruff violations and dashboard/app.py 8 mypy errors, none of them
       # visible in CI.
       - name: Run Ruff (linting)
-        run: ruff check data_pipeline/ dashboard/ tests/
-      
+        run: ruff check data_pipeline/ tests/ dashboard/
+
       - name: Run Ruff (formatting)
-        run: ruff format --check data_pipeline/ dashboard/ tests/
-      
+        run: ruff format --check data_pipeline/ tests/ dashboard/
+
       # mypy covers the shipped code. tests/ is deliberately excluded for
       # now -- see the PR notes: doing it properly needs the DI seams
       # expressed as Protocols, which is a production type change.
       - name: Run MyPy (type checking)
-        run: mypy data_pipeline/ dashboard/ --ignore-missing-imports
+        # ignore_missing_imports is configured in pyproject.toml so this matches
+        # local runs exactly.
+        run: mypy data_pipeline/ dashboard/
 
   test:
     name: Unit Tests

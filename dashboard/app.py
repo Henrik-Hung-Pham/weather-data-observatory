@@ -269,8 +269,8 @@ def render_weather_data(db: DatabaseManager) -> None:
     st.subheader("📊 Statistics")
     stat_cols = st.columns(5)
 
-    stats: dict[str, str | int] = {
-        "Count": len(filtered_df),
+    stats = {
+        "Count": f"{len(filtered_df)}",
         "Avg Temp": f"{filtered_df['temperature_celsius'].mean():.1f}°C",
         "Max Temp": f"{filtered_df['temperature_celsius'].max():.1f}°C",
         "Min Temp": f"{filtered_df['temperature_celsius'].min():.1f}°C",
