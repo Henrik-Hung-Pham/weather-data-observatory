@@ -1,0 +1,11 @@
+# Code owners are requested for review automatically on every PR.
+# See https://docs.github.com/articles/about-code-owners
+
+# Default owner for everything in the repo.
+*                       @Henrik-Hung-Pham
+
+# Area owners (extend as the team grows).
+/data_pipeline/quality/ @Henrik-Hung-Pham
+/.github/               @Henrik-Hung-Pham
+/infra/                 @Henrik-Hung-Pham
+/sql/                   @Henrik-Hung-Pham
