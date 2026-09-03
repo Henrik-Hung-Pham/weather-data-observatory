@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # =============================================================================
   # Infrastructure Services
@@ -78,7 +76,14 @@ services:
       - ./logs:/app/logs
     networks:
       - observatory-network
-    restart: unless-stopped
+    # The pipeline is a batch job: `python -m data_pipeline.pipeline` runs
+    # once and exits. `restart: unless-stopped` therefore restarted it
+    # immediately, forever -- a tight loop against the OpenWeather free tier.
+    # Run it once per `docker-compose up`; re-run on demand with
+    # `docker-compose run --rm pipeline`. For scheduled runs use the Dagster
+    # orchestration layer (see data_pipeline/orchestration/definitions.py),
+    # which is what owns scheduling in this project.
+    restart: "no"
 
   dashboard:
     build:
