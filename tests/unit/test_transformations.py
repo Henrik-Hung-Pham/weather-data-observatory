@@ -1,11 +1,12 @@
 """Unit tests for data transformations."""
 
-import pytest
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
-from data_pipeline.transformation.silver import SilverTransformer
+import pytest
+
 from data_pipeline.transformation.gold import GoldTransformer
+from data_pipeline.transformation.silver import SilverTransformer
 
 
 def _valid_bronze_record(**overrides):
@@ -37,23 +38,26 @@ class TestSilverTransformer:
     @pytest.fixture
     def transformer(self, mock_s3_client):
         """Create transformer with mocked storage."""
-        from data_pipeline.storage.datalake import DataLakeStorage
         from unittest.mock import patch
-        
-        with patch.object(DataLakeStorage, '__init__', lambda self, *args, **kwargs: None):
-            with patch.object(DataLakeStorage, '_create_client', return_value=mock_s3_client):
-                t = SilverTransformer.__new__(SilverTransformer)
-                t.storage = None
-                return t
+
+        from data_pipeline.storage.datalake import DataLakeStorage
+
+        with (
+            patch.object(DataLakeStorage, "__init__", lambda self, *args, **kwargs: None),
+            patch.object(DataLakeStorage, "_create_client", return_value=mock_s3_client),
+        ):
+            t = SilverTransformer.__new__(SilverTransformer)
+            t.storage = None
+            return t
 
     @pytest.mark.unit
     def test_transform_success(self, sample_bronze_data):
         """Test successful transformation."""
         transformer = SilverTransformer.__new__(SilverTransformer)
         transformer.storage = None
-        
+
         result = transformer.transform(sample_bronze_data)
-        
+
         assert len(result) == 2
         assert result[0]["city"] == "London"
         assert result[0]["_source_layer"] == "bronze"
@@ -64,9 +68,9 @@ class TestSilverTransformer:
         """Test transformation with empty data."""
         transformer = SilverTransformer.__new__(SilverTransformer)
         transformer.storage = None
-        
+
         result = transformer.transform([])
-        
+
         assert result == []
 
     @pytest.mark.unit
@@ -166,13 +170,13 @@ class TestSilverTransformer:
         """Test validation fails with out-of-range values."""
         transformer = SilverTransformer.__new__(SilverTransformer)
         transformer.storage = None
-        
+
         invalid_record = {
             "city": "London",
             "temperature_celsius": 200.0,  # Out of range
             "humidity": 65,
         }
-        
+
         assert transformer._validate_record(invalid_record) is False
 
     @pytest.mark.unit
@@ -264,9 +268,9 @@ class TestGoldTransformer:
         transformer = GoldTransformer.__new__(GoldTransformer)
         transformer.storage = None
         transformer.database = None
-        
+
         result = transformer.transform(sample_silver_data)
-        
+
         assert "records" in result
         assert "daily_aggregates" in result
         assert "city_statistics" in result
@@ -279,9 +283,9 @@ class TestGoldTransformer:
         transformer = GoldTransformer.__new__(GoldTransformer)
         transformer.storage = None
         transformer.database = None
-        
+
         result = transformer.transform([])
-        
+
         assert result["records"] == []
 
     @pytest.mark.unit
@@ -290,9 +294,9 @@ class TestGoldTransformer:
         transformer = GoldTransformer.__new__(GoldTransformer)
         transformer.storage = None
         transformer.database = None
-        
+
         result = transformer.transform(sample_silver_data)
-        
+
         metadata = result["metadata"]
         assert "transformed_at" in metadata
         assert metadata["record_count"] == 1
@@ -304,10 +308,10 @@ class TestGoldTransformer:
         transformer = GoldTransformer.__new__(GoldTransformer)
         transformer.storage = None
         transformer.database = None
-        
+
         result = transformer.transform(sample_silver_data)
         records = result["records"]
-        
+
         # London at 12°C should be "mild"
         assert records[0]["temp_category"] == "mild"
 
