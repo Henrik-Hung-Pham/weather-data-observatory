@@ -1,7 +1,8 @@
 """Integration tests for the full pipeline."""
 
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 @pytest.mark.integration
@@ -16,15 +17,17 @@ class TestPipelineIntegration:
         api_response.ok = True
         api_response.status_code = 200
         api_response.json.return_value = sample_api_response
-        
+
         # Mock session
         mock_session = MagicMock()
         mock_session.get.return_value = api_response
-        
-        with patch("requests.Session", return_value=mock_session):
-            with patch("boto3.client", return_value=mock_s3_client):
-                with patch("sqlalchemy.create_engine"):
-                    yield
+
+        with (
+            patch("requests.Session", return_value=mock_session),
+            patch("boto3.client", return_value=mock_s3_client),
+            patch("sqlalchemy.create_engine"),
+        ):
+            yield
 
     @pytest.mark.integration
     def test_pipeline_bronze_to_silver(
@@ -34,12 +37,12 @@ class TestPipelineIntegration:
     ):
         """Test Bronze to Silver transformation flow."""
         from data_pipeline.transformation.silver import SilverTransformer
-        
+
         transformer = SilverTransformer.__new__(SilverTransformer)
         transformer.storage = None
-        
+
         silver_data = transformer.transform(sample_bronze_data)
-        
+
         assert len(silver_data) == len(sample_bronze_data)
         assert all("_transformed_at" in record for record in silver_data)
         assert all("_source_layer" in record for record in silver_data)
@@ -52,13 +55,13 @@ class TestPipelineIntegration:
     ):
         """Test Silver to Gold transformation flow."""
         from data_pipeline.transformation.gold import GoldTransformer
-        
+
         transformer = GoldTransformer.__new__(GoldTransformer)
         transformer.storage = None
         transformer.database = None
-        
+
         gold_result = transformer.transform(sample_silver_data)
-        
+
         assert "records" in gold_result
         assert "daily_aggregates" in gold_result
         assert "metadata" in gold_result
@@ -70,24 +73,24 @@ class TestPipelineIntegration:
         sample_bronze_data,
     ):
         """Test complete ETL flow from Bronze to Gold."""
-        from data_pipeline.transformation.silver import SilverTransformer
         from data_pipeline.transformation.gold import GoldTransformer
-        
+        from data_pipeline.transformation.silver import SilverTransformer
+
         # Bronze -> Silver
         silver_transformer = SilverTransformer.__new__(SilverTransformer)
         silver_transformer.storage = None
         silver_data = silver_transformer.transform(sample_bronze_data)
-        
+
         # Silver -> Gold
         gold_transformer = GoldTransformer.__new__(GoldTransformer)
         gold_transformer.storage = None
         gold_transformer.database = None
         gold_result = gold_transformer.transform(silver_data)
-        
+
         # Verify data integrity
         assert gold_result["metadata"]["record_count"] == len(sample_bronze_data)
         assert gold_result["metadata"]["cities_count"] == len(
-            set(r["city"] for r in sample_bronze_data)
+            {r["city"] for r in sample_bronze_data}
         )
 
     @pytest.mark.integration
@@ -98,12 +101,12 @@ class TestPipelineIntegration:
     ):
         """Test quality gates work with real data flow."""
         from data_pipeline.quality.gates import QualityGate, schema_drift_rule
-        
+
         expected_schema = {"city", "country", "temperature_celsius", "humidity"}
-        
+
         gate = QualityGate("integration_test_gate", mode="warn")
         gate.add_rule(schema_drift_rule(expected_schema))
-        
+
         result = gate.evaluate(sample_bronze_data, "bronze")
 
         # Should pass since expected schema is subset of actual
