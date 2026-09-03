@@ -240,6 +240,34 @@ See [`data_pipeline/alerting.py`](data_pipeline/alerting.py).
 
 ---
 
+## 📈 Metrics (Prometheus)
+
+Each run can export metrics to a **Prometheus Pushgateway** (the pipeline is a
+short-lived batch job, so a scrape endpoint would disappear before Prometheus
+could scrape it). Best-effort — a push failure is logged, never fatal. Disabled
+by default; enable with:
+
+```env
+METRICS_ENABLED=true
+PROMETHEUS_PUSHGATEWAY_URL=http://localhost:9091
+METRICS_JOB_NAME=data_observatory
+```
+
+Exported series include:
+
+| Metric | Type | Labels |
+|--------|------|--------|
+| `observatory_pipeline_runs_total` | counter | `status` |
+| `observatory_pipeline_duration_seconds` | gauge | — |
+| `observatory_pipeline_records` | gauge | `stage` |
+| `observatory_pipeline_last_run_timestamp_seconds` | gauge | — |
+| `observatory_quality_gate_total` | counter | `layer`, `status` |
+| `observatory_quality_issues` | gauge | `layer`, `severity` |
+
+See [`data_pipeline/metrics.py`](data_pipeline/metrics.py).
+
+---
+
 ## 🔁 Self-Healing (Quarantine)
 
 The Silver transformer validates each record (required fields + value ranges).

@@ -16,6 +16,7 @@ from data_pipeline.config import get_settings
 from data_pipeline.ingestion import WeatherAPIClient
 from data_pipeline.lineage import LineageManifest
 from data_pipeline.logging_config import configure_logging
+from data_pipeline.metrics import PipelineMetrics
 from data_pipeline.quality import QualityGateResult
 from data_pipeline.quality.gates import (
     QualityGateBlocked,
@@ -94,6 +95,7 @@ class DataPipeline:
         storage: DataLakeStorage | None = None,
         database: DatabaseManager | None = None,
         alerter: SlackAlerter | None = None,
+        metrics: PipelineMetrics | None = None,
     ):
         """Initialize the data pipeline.
 
@@ -102,6 +104,7 @@ class DataPipeline:
             storage: Data lake storage for Bronze/Silver/Gold layers.
             database: Database manager for serving layer.
             alerter: Alerter for pipeline failures / quality-gate blocks.
+            metrics: Prometheus metrics exporter for run results.
         """
         settings = get_settings()
 
@@ -110,6 +113,7 @@ class DataPipeline:
         self.storage = storage or DataLakeStorage()
         self.database = database or DatabaseManager()
         self.alerter = alerter or SlackAlerter()
+        self.metrics = metrics or PipelineMetrics()
 
         # Transformers
         self.silver_transformer = SilverTransformer(self.storage)
@@ -229,6 +233,9 @@ class DataPipeline:
                 "loaded": result.records_loaded,
             },
         )
+
+        # Export run metrics to Prometheus (best-effort, no-op when disabled)
+        self.metrics.record_and_push(result)
 
         logger.info(
             f"📊 Pipeline Summary:\n"

@@ -106,6 +106,20 @@ class Settings(BaseSettings):
         "instead of dropping them, so the pipeline self-heals and bad data is auditable",
     )
 
+    # Metrics / Prometheus
+    metrics_enabled: bool = Field(
+        default=False,
+        description="Push per-run Prometheus metrics to a Pushgateway after each run",
+    )
+    prometheus_pushgateway_url: str = Field(
+        default="",
+        description="Prometheus Pushgateway base URL (e.g. http://localhost:9091)",
+    )
+    metrics_job_name: str = Field(
+        default="data_observatory",
+        description="Pushgateway 'job' label for pipeline metrics",
+    )
+
     @property
     def cities_list(self) -> list[str]:
         """Parse comma-separated cities into a list."""
