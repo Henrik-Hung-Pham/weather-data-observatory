@@ -43,6 +43,9 @@ Data-lake objects are written with **Hive-style date partitioning**
 (`…/year=2024/month=01/day=15/…`) so query engines (Athena/Glue/Spark) can
 prune partitions. Set `PARTITION_STYLE=plain` for bare `YYYY/MM/DD/` instead.
 
+Gold records are loaded into PostgreSQL with a **single batched upsert**
+(psycopg2 `execute_values`/`execute_batch`) rather than one round-trip per row.
+
 ---
 
 ## ✨ Key Features
