@@ -7,14 +7,14 @@ name: PR Merge Train
 # tab rather than silence.
 on:
   schedule:
-    # 06:05 UTC on weekdays == 09:05 Europe/Helsinki while EEST holds, and
-    # 08:05 after DST ends 2026-10-25. GitHub cron is always UTC.
+    # 06:30 UTC on weekdays == 09:30 Europe/Helsinki while EEST holds, and
+    # 08:30 after DST ends 2026-10-25. GitHub cron is always UTC.
     #
     # Note: GitHub delays scheduled runs under load, sometimes by 10+ minutes,
     # and may skip them entirely on repos with no recent activity. That is
     # documented behaviour, not a fault — but it is why the run reports to
     # issue #31 every time, so a missing report is detectable.
-    - cron: "5 6 * * 1-5"
+    - cron: "30 6 * * 1-5"
   workflow_dispatch:
 
 # Never let two merge trains overlap — both would try to merge a PR.
