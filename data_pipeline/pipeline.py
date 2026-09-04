@@ -141,6 +141,12 @@ class DataPipeline:
         self._current_result = result
         self._manifest = LineageManifest(run_id=str(self.run_id), cities=cities)
 
+        # One timestamp for the whole run, so Bronze/Silver/Gold objects land in
+        # the same date partition and share a consistent run-stamped filename
+        # (instead of each phase calling datetime.now() and possibly straddling
+        # a partition boundary).
+        run_ts = result.started_at
+
         logger.info(f"🚀 Starting pipeline run {self.run_id}")
         logger.info(f"   Cities: {', '.join(cities)}")
 
@@ -151,7 +157,7 @@ class DataPipeline:
             # is the point of the layer, including when it turns out to be bad.
             # The Bronze gate below decides whether to *proceed*, not whether
             # to land. Every gate after this one runs before its write.
-            bronze_data = self._ingest_to_bronze(cities)
+            bronze_data = self._ingest_to_bronze(cities, run_ts)
             result.records_ingested = len(bronze_data)
             result.cities_processed = len({r.get("city", "") for r in bronze_data})
 
@@ -176,7 +182,7 @@ class DataPipeline:
             if silver_gate_result.blocked:
                 raise QualityGateBlocked(silver_gate_result)
 
-            self._write_silver(silver_data)
+            self._write_silver(silver_data, run_ts)
 
             # Phase 5: Transform to Gold (in memory -- not yet persisted)
             gold_result = self._transform_to_gold(silver_data)
@@ -190,7 +196,7 @@ class DataPipeline:
                 raise QualityGateBlocked(gold_gate_result)
 
             # Phase 7: Load Gold to the lake and the serving layer
-            self._load_gold(gold_result)
+            self._load_gold(gold_result, run_ts)
             # The count the serving layer actually accepted, not the count we
             # handed it -- those differ whenever the load fails or is partial.
             result.records_loaded = gold_result.get("records_loaded", 0)
@@ -216,7 +222,7 @@ class DataPipeline:
             result.duration_seconds = time.time() - start_time
 
         # Store run result
-        self._persist_run_result(result)
+        self._persist_run_result(result, run_ts)
 
         # Alert on failure / quality-gate block (best-effort, no-op on success)
         self.alerter.alert_pipeline_result(
@@ -240,11 +246,12 @@ class DataPipeline:
 
         return result
 
-    def _ingest_to_bronze(self, cities: list[str]) -> list[dict[str, Any]]:
+    def _ingest_to_bronze(self, cities: list[str], timestamp: datetime) -> list[dict[str, Any]]:
         """Ingest weather data from API to Bronze layer.
 
         Args:
             cities: List of cities to fetch.
+            timestamp: Single run timestamp used for the partition + filename.
 
         Returns:
             List of raw weather records.
@@ -257,7 +264,6 @@ class DataPipeline:
         bronze_data = [w.to_dict() for w in weather_data]
 
         # Store in Bronze layer
-        timestamp = datetime.now(timezone.utc)
         filename = f"weather_batch_{timestamp.strftime('%Y%m%d_%H%M%S')}"
         key = self.storage.write_json(bronze_data, "bronze", filename, timestamp)
         self._record_artifact("bronze", key, len(bronze_data))
@@ -299,16 +305,16 @@ class DataPipeline:
         logger.info(f"   Transformed {len(silver_data)} records to Silver layer")
         return silver_data
 
-    def _write_silver(self, silver_data: list[dict[str, Any]]) -> str:
+    def _write_silver(self, silver_data: list[dict[str, Any]], timestamp: datetime) -> str:
         """Persist gate-approved Silver records to the data lake.
 
         Args:
             silver_data: Cleaned Silver records that passed the Silver gate.
+            timestamp: Single run timestamp used for the partition + filename.
 
         Returns:
             The data-lake key the records were written to.
         """
-        timestamp = datetime.now(timezone.utc)
         filename = f"weather_cleaned_{timestamp.strftime('%Y%m%d_%H%M%S')}"
         key = self.storage.write_json(silver_data, "silver", filename, timestamp)
         self._record_artifact("silver", key, len(silver_data))
@@ -350,7 +356,7 @@ class DataPipeline:
         logger.info(f"   Created {len(gold_result['records'])} Gold layer records")
         return gold_result
 
-    def _load_gold(self, gold_result: dict[str, Any]) -> None:
+    def _load_gold(self, gold_result: dict[str, Any], timestamp: datetime) -> None:
         """Load gate-approved Gold records to the lake and the serving layer.
 
         Only ever called after the Gold quality gate has passed, so a duplicate
@@ -359,13 +365,13 @@ class DataPipeline:
 
         Args:
             gold_result: Gold transformation result that passed the Gold gate.
+            timestamp: Single run timestamp used for the partition + filename.
         """
         logger.info("📤 Phase 7: Loading Gold layer")
 
         records = gold_result["records"]
 
         # Store records in Gold layer
-        timestamp = datetime.now(timezone.utc)
         filename = f"weather_gold_{timestamp.strftime('%Y%m%d_%H%M%S')}"
         key = self.storage.write_json(records, "gold", filename, timestamp)
         self._record_artifact("gold", key, len(records))
@@ -416,11 +422,13 @@ class DataPipeline:
         except Exception as e:
             logger.warning(f"Failed to persist lineage manifest: {e}")
 
-    def _persist_run_result(self, result: PipelineRunResult) -> None:
+    def _persist_run_result(self, result: PipelineRunResult, timestamp: datetime) -> None:
         """Persist pipeline run result to storage and database.
 
         Args:
             result: Pipeline run result to persist.
+            timestamp: Single run timestamp, so the run-result object lands in
+                the same date partition as the run's data.
         """
         # Store to S3
         try:
@@ -428,6 +436,7 @@ class DataPipeline:
                 result.to_dict(),
                 "gold",
                 f"pipeline_run_{result.run_id}",
+                timestamp,
             )
         except Exception as e:
             logger.warning(f"Failed to persist run result to S3: {e}")
