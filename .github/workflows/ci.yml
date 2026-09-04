@@ -58,8 +58,14 @@ jobs:
           pip install -r requirements.txt
       
       - name: Run Unit Tests
+        # --cov-fail-under is a ratchet, not a target: it stops coverage
+        # sliding backwards. Raise it when a change earns the increase.
         run: |
-          pytest tests/unit/ -v --cov=data_pipeline --cov-report=xml --cov-report=term-missing
+          pytest tests/unit/ -v \
+            --cov=data_pipeline \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            --cov-fail-under=64
         env:
           OPENWEATHER_API_KEY: "test_key"
       
@@ -135,9 +141,23 @@ jobs:
           PGPASSWORD=observatory_secret psql -h localhost -U observatory -d observatory -f sql/schema.sql
       
       - name: Run Integration Tests
+        # The services above are provisioned, so an unreachable service must
+        # fail the job. Without REQUIRE_INTEGRATION_SERVICES the suite skips
+        # when it cannot connect, which would let this job pass green while
+        # testing nothing -- exactly the state it was in before.
+        #
+        # Coverage is scoped to data_pipeline.storage: these tests exist
+        # specifically to cover the S3 and SQL code the unit suite cannot.
+        # 68% is the measured figure with the services up -- database.py alone
+        # was at 13% before these tests existed. Ratchet it, don't chase it:
+        # initialize_schema and most error branches remain uncovered.
         run: |
-          pytest tests/integration/ -v
+          pytest tests/integration/ -v \
+            --cov=data_pipeline.storage \
+            --cov-report=term-missing \
+            --cov-fail-under=68
         env:
+          REQUIRE_INTEGRATION_SERVICES: "1"
           OPENWEATHER_API_KEY: "test_key"
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
