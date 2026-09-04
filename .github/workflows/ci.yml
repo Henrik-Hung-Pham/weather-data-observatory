@@ -28,12 +28,19 @@ jobs:
           pip install ruff mypy
           pip install -r requirements.txt
       
+      # Lint everything we ship or test. Checking only data_pipeline/ left
+      # about a third of the codebase unlinted: dashboard/ and tests/ had 147
+      # ruff violations and dashboard/app.py 8 mypy errors, none of them
+      # visible in CI.
       - name: Run Ruff (linting)
         run: ruff check data_pipeline/ tests/ dashboard/
 
       - name: Run Ruff (formatting)
         run: ruff format --check data_pipeline/ tests/ dashboard/
 
+      # mypy covers the shipped code. tests/ is deliberately excluded for
+      # now -- see the PR notes: doing it properly needs the DI seams
+      # expressed as Protocols, which is a production type change.
       - name: Run MyPy (type checking)
         # ignore_missing_imports is configured in pyproject.toml so this matches
         # local runs exactly.
