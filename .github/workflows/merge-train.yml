@@ -64,6 +64,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Run the merge train
+        id: claude
         uses: anthropics/claude-code-action@v1
         env:
           GH_TOKEN: ${{ secrets.MERGE_TRAIN_TOKEN || secrets.GITHUB_TOKEN }}
@@ -119,3 +120,64 @@ jobs:
                Report honestly — if something failed or you skipped a step, say so plainly rather than presenting a clean summary.
 
             HARD CONSTRAINTS: never force-push to `main`; never close a PR; never merge more than one PR per run; never merge a PR whose checks are failing; never close issue #31.
+
+      # The action runs the SDK with "full output hidden for security", so a
+      # failed run reports only `is_error: true` with no reason -- which cost
+      # three blind debugging rounds on 2026-09-07. This prints the result
+      # counters and any recognised API error signature, and NOTHING else:
+      # the repo is public and the execution log echoes the prompt plus any
+      # file contents Claude read.
+      - name: Explain the failure
+        if: failure()
+        env:
+          EXEC_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          FILE="${EXEC_FILE:-$RUNNER_TEMP/claude-execution-output.json}"
+          if [ ! -f "$FILE" ]; then
+            echo "No execution log at $FILE - the run failed before Claude started."
+            exit 0
+          fi
+          python3 - "$FILE" <<'PY'
+          import json, re, sys
+
+          raw = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+          try:
+              entries = json.loads(raw)
+          except json.JSONDecodeError:
+              entries = []
+          if isinstance(entries, dict):
+              entries = [entries]
+
+          print("=== result summary ===")
+          for e in entries:
+              if isinstance(e, dict) and e.get("type") == "result":
+                  for k in ("subtype", "is_error", "num_turns",
+                            "duration_ms", "total_cost_usd"):
+                      print("  %s: %s" % (k, e.get(k)))
+
+          # Fixed patterns only - never the free-text result field.
+          patterns = [
+              r'"type"\s*:\s*"([a-z_]*error[a-z_]*)"',
+              r'\b(authentication_error|permission_error|not_found_error'
+              r'|rate_limit_error|invalid_request_error|overloaded_error'
+              r'|billing_error|api_error)\b',
+              r'\b(?:HTTP|status(?:\s+code)?)[\s:]*([45]\d{2})\b',
+              r'(credit balance is too low)',
+              r'(insufficient[_ ]quota)',
+              r'(model[^"]{0,40}not[^"]{0,20}found)',
+              r'(invalid x-api-key)',
+          ]
+          hits = []
+          for pat in patterns:
+              for m in re.finditer(pat, raw, re.I):
+                  hit = m.group(0)[:120]
+                  if hit not in hits:
+                      hits.append(hit)
+
+          print("=== api error signatures ===")
+          if hits:
+              for h in hits[:20]:
+                  print("  " + h)
+          else:
+              print("  none matched - not an API rejection; check the step log above.")
+          PY
