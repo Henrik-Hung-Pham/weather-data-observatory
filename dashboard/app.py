@@ -238,7 +238,7 @@ def render_weather_data(db: DatabaseManager) -> None:
         selected_city = st.selectbox("Select City", ["All"] + cities)
 
     with col2:
-        st.date_input(
+        date_range = st.date_input(
             "Date Range",
             value=(df["recorded_at"].min().date(), df["recorded_at"].max().date()),
         )
@@ -253,6 +253,17 @@ def render_weather_data(db: DatabaseManager) -> None:
     filtered_df = df.copy()
     if selected_city != "All":
         filtered_df = filtered_df[filtered_df["city"] == selected_city]
+
+    # st.date_input returns a single date until both ends are picked, so only
+    # filter once we have a complete range.
+    if isinstance(date_range, tuple) and len(date_range) == 2:
+        start, end = date_range
+        recorded_dates = filtered_df["recorded_at"].dt.date
+        filtered_df = filtered_df[(recorded_dates >= start) & (recorded_dates <= end)]
+
+    if filtered_df.empty:
+        st.info("No readings match the selected filters.")
+        return
 
     # Stats
     st.subheader("📊 Statistics")
@@ -428,7 +439,10 @@ def render_quality_metrics(db: DatabaseManager) -> None:
 
     # Statistical anomaly detection on temperature
     st.subheader("🚨 Temperature Anomalies")
-    st.caption("Readings more than 3σ from their city's mean (z-score outliers).")
+    st.caption(
+        "Readings with a modified z-score of 3.5 or more from their city's "
+        "median (median absolute deviation, robust to the outliers themselves)."
+    )
 
     weather = db.get_latest_weather(limit=500)
     anomalies = detect_temperature_anomalies(weather) if weather else []
@@ -450,35 +464,35 @@ def render_quality_metrics(db: DatabaseManager) -> None:
     # Quality Rules
     st.subheader("📏 Active Quality Rules")
 
+    # Mirrors build_gate_for_layer() in data_pipeline/quality/gates.py.
+    # It previously claimed Data Freshness was active on Gold (the rule is
+    # implemented but wired into no layer) and that the range checks covered
+    # Gold (they are Silver-only). Keep this table in step with that factory
+    # when rules change -- better still, derive it, which needs the rule
+    # factories to carry their names.
     rules_df = pd.DataFrame(
         [
             {
                 "Rule": "Schema Drift Detection",
-                "Layer": "All",
-                "Severity": "🔴 Critical",
+                "Layer": "Bronze, Silver",
+                "Severity": "🔴 Critical (missing) / 🟡 Warning (extra)",
                 "Status": "Active",
             },
             {
                 "Rule": "Null Value Check",
-                "Layer": "All",
-                "Severity": "🟡 Warning",
+                "Layer": "Bronze, Silver, Gold",
+                "Severity": "🟡 Warning (🔴 Critical above 10%)",
                 "Status": "Active",
             },
             {
                 "Rule": "Temperature Range",
-                "Layer": "Silver/Gold",
+                "Layer": "Silver",
                 "Severity": "🟡 Warning",
                 "Status": "Active",
             },
             {
                 "Rule": "Humidity Range",
-                "Layer": "Silver/Gold",
-                "Severity": "🟡 Warning",
-                "Status": "Active",
-            },
-            {
-                "Rule": "Data Freshness",
-                "Layer": "Gold",
+                "Layer": "Silver",
                 "Severity": "🟡 Warning",
                 "Status": "Active",
             },
@@ -488,10 +502,20 @@ def render_quality_metrics(db: DatabaseManager) -> None:
                 "Severity": "🔴 Critical",
                 "Status": "Active",
             },
+            {
+                "Rule": "Data Freshness",
+                "Layer": "—",
+                "Severity": "🟡 Warning",
+                "Status": "Implemented, not wired to any layer",
+            },
         ]
     )
 
     st.dataframe(rules_df, use_container_width=True, hide_index=True)
+    st.caption(
+        "In `block` mode (the default) a Warning blocks the pipeline too — "
+        "only `warn` mode lets warnings through."
+    )
 
 
 def render_pipeline_status(db: DatabaseManager) -> None:
@@ -573,33 +597,46 @@ def render_pipeline_status(db: DatabaseManager) -> None:
         st.warning(f"Unable to fetch recent pipeline runs (is the schema migrated?): {e}")
         recent_runs = []
 
-    if not recent_runs:
+    runs_df = pd.DataFrame(recent_runs) if recent_runs else pd.DataFrame()
+
+    if runs_df.empty:
         st.info("No pipeline runs recorded yet. Run the pipeline to populate.")
     else:
-        runs_df = pd.DataFrame(recent_runs)
         st.dataframe(runs_df, use_container_width=True, hide_index=True)
 
     st.divider()
 
-    # Manual trigger
-    st.subheader("🎮 Manual Controls")
+    st.subheader("🎮 Controls")
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
 
     with col1:
-        if st.button("▶️ Run Pipeline Now", type="primary"):
-            with st.spinner("Running pipeline..."):
-                st.info("Pipeline execution would be triggered here")
-                st.success("Pipeline completed successfully!")
-
-    with col2:
         if st.button("🔄 Refresh Metrics"):
             st.cache_data.clear()
             st.rerun()
 
-    with col3:
-        if st.button("📊 Export Report"):
-            st.info("Report export functionality")
+    with col2:
+        # A real export of what is on screen. This replaces a button that
+        # printed "Report export functionality" and did nothing.
+        st.download_button(
+            "📊 Export runs (CSV)",
+            data=runs_df.to_csv(index=False).encode("utf-8"),
+            file_name="pipeline_runs.csv",
+            mime="text/csv",
+            disabled=runs_df.empty,
+        )
+
+    # This dashboard is read-only. There used to be a "Run Pipeline Now"
+    # button here that ran nothing and then reported
+    # "Pipeline completed successfully!" -- worse than no button, because it
+    # asserted a successful run that never happened. Triggering a run belongs
+    # to the CLI or the orchestrator, both of which record what they did.
+    st.caption("To trigger a run:")
+    st.code(
+        "observatory run                 # one-off, from the CLI\n"
+        "dagster dev -m data_pipeline.orchestration.definitions   # scheduled",
+        language="bash",
+    )
 
 
 if __name__ == "__main__":
