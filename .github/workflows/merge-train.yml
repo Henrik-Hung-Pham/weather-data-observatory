@@ -6,15 +6,25 @@ name: PR Merge Train
 # live and fails visibly: a missed or broken run is a red entry in the Actions
 # tab rather than silence.
 on:
-  schedule:
-    # 06:30 UTC on weekdays == 09:30 Europe/Helsinki while EEST holds, and
-    # 08:30 after DST ends 2026-10-25. GitHub cron is always UTC.
-    #
-    # Note: GitHub delays scheduled runs under load, sometimes by 10+ minutes,
-    # and may skip them entirely on repos with no recent activity. That is
-    # documented behaviour, not a fault — but it is why the run reports to
-    # issue #31 every time, so a missing report is detectable.
-    - cron: "30 6 * * 1-5"
+  # SCHEDULE DISABLED 2026-09-07. This workflow cannot run: the Anthropic API
+  # key has no credits, so every fire died on `billing_error` before Claude
+  # started. Left on the cron it produced a red run and a failure email every
+  # weekday morning while merging nothing.
+  #
+  # The claude.ai routine trig_013yqvv5HpQfixJLUX5DxvgH is doing the work
+  # instead, on this same cron, billed to the subscription rather than the API.
+  #
+  # TO RE-ENABLE: fund the API key, DISABLE THAT ROUTINE FIRST at
+  # https://claude.ai/code/routines, then uncomment the schedule below. Both
+  # trains live at once is not hypothetical -- it happened on 2026-09-07, when
+  # the routine merged #25 at 06:35 while Actions was failing at the same slot.
+  #
+  # 06:30 UTC on weekdays == 09:30 Europe/Helsinki while EEST holds, and 08:30
+  # after DST ends 2026-10-25. GitHub cron is always UTC, and delays scheduled
+  # runs under load -- the 2026-09-07 fire started 6h20m late.
+  #
+  # schedule:
+  #   - cron: "30 6 * * 1-5"
   workflow_dispatch:
 
 # Never let two merge trains overlap — both would try to merge a PR.
