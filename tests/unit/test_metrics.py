@@ -92,9 +92,7 @@ def test_record_and_push_records_then_returns_push_result():
     # Inactive -> push() returns False, but the run is still recorded.
     assert metrics.record_and_push(_sample_result()) is False
     assert (
-        metrics.registry.get_sample_value(
-            "observatory_pipeline_runs_total", {"status": "success"}
-        )
+        metrics.registry.get_sample_value("observatory_pipeline_runs_total", {"status": "success"})
         == 1.0
     )
 
