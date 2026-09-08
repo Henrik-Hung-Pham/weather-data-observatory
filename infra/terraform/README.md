@@ -8,7 +8,8 @@ real-cloud counterpart to the LocalStack setup used for local development.
 | Resource | Purpose |
 |----------|---------|
 | `aws_s3_bucket` (+ versioning, encryption, public-access block) | Medallion data lake (bronze/silver/gold prefixes) |
-| `aws_ecr_repository` ×2 | Registries for the pipeline and dashboard images |
+| `aws_kms_key` (+ alias) | Customer-managed key encrypting the data lake, rotation enabled |
+| `aws_ecr_repository` ×2 | Registries for the pipeline and dashboard images (immutable tags) |
 | `aws_db_instance` (Postgres) | Gold serving layer the dashboard reads from |
 
 ## Usage

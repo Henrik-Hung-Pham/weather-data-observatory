@@ -1,0 +1,19 @@
+# gitleaks configuration for the Data Observatory.
+#
+# Extends the upstream default ruleset and allowlists the project's
+# intentional, non-secret local-development placeholders so they don't trip
+# the scanner (they are documented defaults, never real credentials).
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Local-dev placeholders and example config (not real secrets)"
+paths = [
+  '''\.env\.example''',
+]
+regexes = [
+  # LocalStack dummy AWS credentials.
+  '''(aws_access_key_id|aws_secret_access_key)\s*[:=]\s*["']?test["']?''',
+  # Documented local Postgres default used only by docker-compose / tests.
+  '''observatory_secret''',
+]
