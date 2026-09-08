@@ -17,9 +17,7 @@ def sample_api_response() -> dict[str, Any]:
     """Sample OpenWeather API response."""
     return {
         "coord": {"lon": -0.1257, "lat": 51.5085},
-        "weather": [
-            {"id": 800, "main": "Clear", "description": "clear sky", "icon": "01d"}
-        ],
+        "weather": [{"id": 800, "main": "Clear", "description": "clear sky", "icon": "01d"}],
         "base": "stations",
         "main": {
             "temp": 285.15,  # Kelvin
@@ -140,7 +138,7 @@ def mock_database():
     with patch("data_pipeline.storage.database.create_engine") as mock_engine:
         mock_engine.return_value = MagicMock()
         from data_pipeline.storage.database import DatabaseManager
-        
+
         db = DatabaseManager("postgresql://test:test@localhost/test")
         yield db
 
@@ -148,12 +146,6 @@ def mock_database():
 # Markers for test categorization
 def pytest_configure(config):
     """Configure custom pytest markers."""
-    config.addinivalue_line(
-        "markers", "unit: mark test as a unit test"
-    )
-    config.addinivalue_line(
-        "markers", "integration: mark test as an integration test"
-    )
-    config.addinivalue_line(
-        "markers", "slow: mark test as slow running"
-    )
+    config.addinivalue_line("markers", "unit: mark test as a unit test")
+    config.addinivalue_line("markers", "integration: mark test as an integration test")
+    config.addinivalue_line("markers", "slow: mark test as slow running")
