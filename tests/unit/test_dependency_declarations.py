@@ -12,10 +12,10 @@ resolves to a distribution we never declared.
 
 import ast
 import sys
-import tomllib
 from pathlib import Path
 
 import pytest
+import tomllib
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -59,10 +59,9 @@ def _imported_modules(path: Path) -> set[str]:
         if isinstance(node, ast.Import):
             for alias in node.names:
                 modules.add(alias.name.split(".")[0])
-        elif isinstance(node, ast.ImportFrom):
-            # `from . import x` has no module; it is first-party by definition.
-            if node.level == 0 and node.module:
-                modules.add(node.module.split(".")[0])
+        # `from . import x` has no module; it is first-party by definition.
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            modules.add(node.module.split(".")[0])
     return modules
 
 
