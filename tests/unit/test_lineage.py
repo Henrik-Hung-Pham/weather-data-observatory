@@ -1,5 +1,6 @@
 """Unit tests for run lineage."""
 
+from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
 import pytest
@@ -52,7 +53,7 @@ def test_pipeline_records_bronze_artifact() -> None:
     ]
     pipeline._manifest = LineageManifest(run_id="r-3", cities=["London"])
 
-    pipeline._ingest_to_bronze(["London"])
+    pipeline._ingest_to_bronze(["London"], datetime(2024, 1, 1, tzinfo=timezone.utc))
 
     assert len(pipeline._manifest.artifacts) == 1
     art = pipeline._manifest.artifacts[0]
