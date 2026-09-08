@@ -8,7 +8,7 @@ license = {text = "MIT"}
 authors = [
     {name = "Data Engineer", email = "engineer@example.com"}
 ]
-keywords = ["data-quality", "etl", "data-pipeline", "great-expectations", "medallion-architecture"]
+keywords = ["data-quality", "etl", "data-pipeline", "quality-gates", "medallion-architecture"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -21,7 +21,6 @@ classifiers = [
 dependencies = [
     "requests>=2.31.0",
     "pandas>=2.0.0",
-    "great-expectations>=0.18.0,<1.0",
     "sqlalchemy>=2.0.0",
     "psycopg2-binary>=2.9.0",
     "boto3>=1.34.0",
@@ -45,6 +44,11 @@ dev = [
 orchestration = [
     "dagster>=1.6,<2.0",
     "dagster-webserver>=1.6,<2.0",
+]
+security = [
+    "pip-audit>=2.7.0",
+    "bandit>=1.7.0",
+    "pip-tools>=7.4.0",
 ]
 
 [project.scripts]
@@ -71,6 +75,10 @@ python_version = "3.10"
 strict = true
 warn_return_any = true
 warn_unused_configs = true
+# Most third-party deps (boto3, streamlit, pandas, ...) ship no stubs; ignore
+# the missing-stub noise here so local and CI mypy behave identically (CI no
+# longer needs the divergent --ignore-missing-imports flag).
+ignore_missing_imports = true
 
 # Dagster is an optional extra (see [project.optional-dependencies].orchestration)
 # and is intentionally not installed in the lint/CI environment. There its types
@@ -93,6 +101,9 @@ source = ["data_pipeline"]
 branch = true
 
 [tool.coverage.report]
+# Floor to prevent coverage regressions; ratchet up as coverage grows
+# (e.g. once the orchestrator unit tests land).
+fail_under = 50
 exclude_lines = [
     "pragma: no cover",
     "def __repr__",
