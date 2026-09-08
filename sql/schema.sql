@@ -88,14 +88,49 @@ CREATE TABLE IF NOT EXISTS gold_weather_daily (
 CREATE INDEX IF NOT EXISTS idx_daily_city_date ON gold_weather_daily(city, date DESC);
 
 -- ============================================================================
+-- Pipeline Run History
+-- ============================================================================
+-- Declared before data_quality_metrics so the latter can reference it.
+
+CREATE TABLE IF NOT EXISTS pipeline_runs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+
+    -- Run information
+    run_id UUID UNIQUE NOT NULL,
+    status VARCHAR(20) NOT NULL CHECK (status IN ('running', 'success', 'failed', 'blocked')),
+
+    -- Timing
+    started_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    completed_at TIMESTAMP WITH TIME ZONE,
+    duration_seconds INTEGER,
+
+    -- Processing stats
+    cities_processed INTEGER,
+    records_ingested INTEGER,
+    records_transformed INTEGER,
+    records_loaded INTEGER,
+
+    -- Quality gate status
+    quality_gate_passed BOOLEAN,
+    quality_gate_reason TEXT,
+
+    -- Error information
+    error_message TEXT,
+    error_traceback TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_runs_status ON pipeline_runs(status, started_at DESC);
+
+-- ============================================================================
 -- Data Quality Metrics Table
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS data_quality_metrics (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    
-    -- Run identification
-    run_id UUID NOT NULL,
+
+    -- Run identification. The FK is what makes "which gate failed on run X?"
+    -- answerable; the pipeline stamps every gate with its owning run's id.
+    run_id UUID NOT NULL REFERENCES pipeline_runs(run_id) ON DELETE CASCADE,
     layer VARCHAR(20) NOT NULL CHECK (layer IN ('bronze', 'silver', 'gold')),
     
     -- Quality metrics
@@ -123,39 +158,6 @@ CREATE TABLE IF NOT EXISTS data_quality_metrics (
 
 CREATE INDEX IF NOT EXISTS idx_quality_run ON data_quality_metrics(run_id);
 CREATE INDEX IF NOT EXISTS idx_quality_layer ON data_quality_metrics(layer, evaluated_at DESC);
-
--- ============================================================================
--- Pipeline Run History
--- ============================================================================
-
-CREATE TABLE IF NOT EXISTS pipeline_runs (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    
-    -- Run information
-    run_id UUID UNIQUE NOT NULL,
-    status VARCHAR(20) NOT NULL CHECK (status IN ('running', 'success', 'failed', 'blocked')),
-    
-    -- Timing
-    started_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    completed_at TIMESTAMP WITH TIME ZONE,
-    duration_seconds INTEGER,
-    
-    -- Processing stats
-    cities_processed INTEGER,
-    records_ingested INTEGER,
-    records_transformed INTEGER,
-    records_loaded INTEGER,
-    
-    -- Quality gate status
-    quality_gate_passed BOOLEAN,
-    quality_gate_reason TEXT,
-    
-    -- Error information
-    error_message TEXT,
-    error_traceback TEXT
-);
-
-CREATE INDEX IF NOT EXISTS idx_runs_status ON pipeline_runs(status, started_at DESC);
 
 -- ============================================================================
 -- Views for Dashboard
