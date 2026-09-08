@@ -9,6 +9,20 @@ resource "aws_s3_bucket" "data_lake" {
   bucket = var.data_lake_bucket_name
 }
 
+# Customer-managed key for the data lake. SSE-S3 (AES256) leaves key policy
+# and rotation entirely with AWS; a CMK lets the key be scoped, audited in
+# CloudTrail, and rotated on a schedule.
+resource "aws_kms_key" "data_lake" {
+  description             = "${local.name_prefix} data lake encryption key"
+  deletion_window_in_days = 30
+  enable_key_rotation     = true
+}
+
+resource "aws_kms_alias" "data_lake" {
+  name          = "alias/${local.name_prefix}-data-lake"
+  target_key_id = aws_kms_key.data_lake.key_id
+}
+
 resource "aws_s3_bucket_versioning" "data_lake" {
   bucket = aws_s3_bucket.data_lake.id
 
@@ -31,8 +45,13 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "data_lake" {
 
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
+      kms_master_key_id = aws_kms_key.data_lake.arn
+      sse_algorithm     = "aws:kms"
     }
+
+    # Cuts KMS request charges by reusing one data key per prefix rather than
+    # calling KMS for every object the pipeline writes.
+    bucket_key_enabled = true
   }
 }
 
@@ -41,7 +60,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "data_lake" {
 # ---------------------------------------------------------------------------
 resource "aws_ecr_repository" "pipeline" {
   name                 = "${local.name_prefix}-pipeline"
-  image_tag_mutability = "MUTABLE"
+  image_tag_mutability = "IMMUTABLE"
 
   image_scanning_configuration {
     scan_on_push = true
@@ -50,7 +69,7 @@ resource "aws_ecr_repository" "pipeline" {
 
 resource "aws_ecr_repository" "dashboard" {
   name                 = "${local.name_prefix}-dashboard"
-  image_tag_mutability = "MUTABLE"
+  image_tag_mutability = "IMMUTABLE"
 
   image_scanning_configuration {
     scan_on_push = true
