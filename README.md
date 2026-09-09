@@ -45,6 +45,9 @@ prune partitions. Set `PARTITION_STYLE=plain` for bare `YYYY/MM/DD/` instead.
 A run stamps **one timestamp** at the start and threads it through every phase,
 so a single run's Bronze/Silver/Gold objects always land in the same partition.
 
+Gold records are loaded into PostgreSQL with a **single batched upsert**
+(psycopg2 `execute_values`/`execute_batch`) rather than one round-trip per row.
+
 ---
 
 ## ✨ Key Features
