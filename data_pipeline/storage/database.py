@@ -46,6 +46,10 @@ class DatabaseManager:
             max_overflow=10,
             pool_pre_ping=True,
             echo=False,
+            # Batch executemany() through psycopg2's fast helpers
+            # (execute_values / execute_batch) instead of one round-trip per
+            # row — a large speed-up for the bulk weather upsert.
+            executemany_mode="values_plus_batch",
         )
         self.SessionLocal = sessionmaker(
             autocommit=False,
@@ -143,30 +147,35 @@ class DatabaseManager:
                 ingested_at = EXCLUDED.ingested_at
         """)
 
+        ingested_at = datetime.now(timezone.utc)
+        params = [
+            {
+                "city": record["city"],
+                "country": record["country"],
+                "temperature_celsius": record["temperature_celsius"],
+                "feels_like_celsius": record["feels_like_celsius"],
+                "humidity": record["humidity"],
+                "pressure": record["pressure"],
+                "wind_speed": record["wind_speed"],
+                "wind_direction": record["wind_direction"],
+                "weather_condition": record["weather_condition"],
+                "weather_description": record["weather_description"],
+                "clouds_percentage": record["clouds_percentage"],
+                "visibility": record["visibility"],
+                "recorded_at": record.get("timestamp") or record.get("recorded_at"),
+                "sunrise": record["sunrise"],
+                "sunset": record["sunset"],
+                "ingested_at": ingested_at,
+            }
+            for record in weather_records
+        ]
+
         try:
+            # Single executemany — psycopg2 batches it via execute_values /
+            # execute_batch (see engine `executemany_mode`), instead of one
+            # network round-trip per row.
             with self.get_session() as session:
-                for record in weather_records:
-                    session.execute(
-                        insert_sql,
-                        {
-                            "city": record["city"],
-                            "country": record["country"],
-                            "temperature_celsius": record["temperature_celsius"],
-                            "feels_like_celsius": record["feels_like_celsius"],
-                            "humidity": record["humidity"],
-                            "pressure": record["pressure"],
-                            "wind_speed": record["wind_speed"],
-                            "wind_direction": record["wind_direction"],
-                            "weather_condition": record["weather_condition"],
-                            "weather_description": record["weather_description"],
-                            "clouds_percentage": record["clouds_percentage"],
-                            "visibility": record["visibility"],
-                            "recorded_at": record.get("timestamp") or record.get("recorded_at"),
-                            "sunrise": record["sunrise"],
-                            "sunset": record["sunset"],
-                            "ingested_at": datetime.now(timezone.utc),
-                        },
-                    )
+                session.execute(insert_sql, params)
 
             logger.info(f"Inserted {len(weather_records)} weather records")
             return len(weather_records)
