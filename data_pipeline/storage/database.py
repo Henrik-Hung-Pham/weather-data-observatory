@@ -4,6 +4,7 @@ Handles connections, schema management, and Gold layer data serving.
 """
 
 import logging
+import math
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -182,6 +183,101 @@ class DatabaseManager:
 
         except SQLAlchemyError as e:
             error_msg = f"Failed to insert weather data: {e}"
+            logger.error(error_msg)
+            raise DatabaseError(error_msg) from e
+
+    @staticmethod
+    def _finite_or_none(value: Any) -> Any:
+        """Return ``None`` for NaN/inf, otherwise the value unchanged.
+
+        pandas yields NaN for the standard deviation of a single-observation
+        group, which is exactly what a daily aggregate looks like on a city's
+        first run of the day. Postgres NUMERIC does accept NaN, so this would
+        store silently and then poison every downstream AVG. The honest value
+        for "not computable" is NULL.
+        """
+        if isinstance(value, float) and not math.isfinite(value):
+            return None
+        return value
+
+    def insert_daily_aggregates(self, daily_records: list[dict[str, Any]]) -> int:
+        """Upsert daily city-level aggregates into ``gold_weather_daily``.
+
+        The aggregates are recomputed from the full Silver batch on every run,
+        so a later run for the same day supersedes an earlier one. The upsert
+        is keyed on the table's ``unique_city_date`` constraint.
+
+        Args:
+            daily_records: Rows from ``GoldTransformer._daily_aggregates``.
+
+        Returns:
+            Number of aggregate rows written.
+
+        Raises:
+            DatabaseError: If the write fails.
+        """
+        if not daily_records:
+            return 0
+
+        insert_sql = text("""
+            INSERT INTO gold_weather_daily (
+                city, country, date,
+                temp_avg, temp_min, temp_max, temp_std,
+                humidity_avg, pressure_avg,
+                wind_speed_avg, wind_speed_max, clouds_avg,
+                observation_count
+            ) VALUES (
+                :city, :country, :date,
+                :temp_avg, :temp_min, :temp_max, :temp_std,
+                :humidity_avg, :pressure_avg,
+                :wind_speed_avg, :wind_speed_max, :clouds_avg,
+                :observation_count
+            )
+            ON CONFLICT (city, date) DO UPDATE SET
+                temp_avg = EXCLUDED.temp_avg,
+                temp_min = EXCLUDED.temp_min,
+                temp_max = EXCLUDED.temp_max,
+                temp_std = EXCLUDED.temp_std,
+                humidity_avg = EXCLUDED.humidity_avg,
+                pressure_avg = EXCLUDED.pressure_avg,
+                wind_speed_avg = EXCLUDED.wind_speed_avg,
+                wind_speed_max = EXCLUDED.wind_speed_max,
+                clouds_avg = EXCLUDED.clouds_avg,
+                observation_count = EXCLUDED.observation_count
+        """)
+
+        # The aggregate column names are the flattened pandas ones
+        # (``temperature_celsius_mean``); the table uses business names
+        # (``temp_avg``). Map explicitly so a rename on either side is a
+        # visible failure rather than a silently NULL column.
+        params = [
+            {
+                "city": record["city"],
+                "country": record["country"],
+                "date": record["date"],
+                "temp_avg": self._finite_or_none(record.get("temperature_celsius_mean")),
+                "temp_min": self._finite_or_none(record.get("temperature_celsius_min")),
+                "temp_max": self._finite_or_none(record.get("temperature_celsius_max")),
+                "temp_std": self._finite_or_none(record.get("temperature_celsius_std")),
+                "humidity_avg": self._finite_or_none(record.get("humidity_mean")),
+                "pressure_avg": self._finite_or_none(record.get("pressure_mean")),
+                "wind_speed_avg": self._finite_or_none(record.get("wind_speed_mean")),
+                "wind_speed_max": self._finite_or_none(record.get("wind_speed_max")),
+                "clouds_avg": self._finite_or_none(record.get("clouds_percentage_mean")),
+                "observation_count": record.get("observation_count"),
+            }
+            for record in daily_records
+        ]
+
+        try:
+            with self.get_session() as session:
+                session.execute(insert_sql, params)
+
+            logger.info(f"Upserted {len(daily_records)} daily aggregate rows")
+            return len(daily_records)
+
+        except SQLAlchemyError as e:
+            error_msg = f"Failed to insert daily aggregates: {e}"
             logger.error(error_msg)
             raise DatabaseError(error_msg) from e
 

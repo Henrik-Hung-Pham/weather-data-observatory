@@ -72,7 +72,7 @@ jobs:
             --cov=data_pipeline \
             --cov-report=xml \
             --cov-report=term-missing \
-            --cov-fail-under=64
+            --cov-fail-under=66
         env:
           OPENWEATHER_API_KEY: "test_key"
       

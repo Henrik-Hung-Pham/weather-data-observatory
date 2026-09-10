@@ -390,6 +390,19 @@ class DataPipeline:
         # Report what was actually persisted, not what we set out to persist.
         gold_result["records_loaded"] = inserted
 
+        # Daily rollups. These were computed by the Gold transformer on every
+        # run and then thrown away -- `gold_weather_daily` was created and
+        # indexed by sql/schema.sql but never written to by anything.
+        #
+        # Held to the same standard as the records above, not best-effort: the
+        # rollup is serving-layer data the dashboard reads, and a silently
+        # missing day is indistinguishable from a day with no weather. It is
+        # recomputable from gold_weather, but only if we are told it failed.
+        daily = gold_result.get("daily_aggregates") or []
+        daily_loaded = self.database.insert_daily_aggregates(daily)
+        gold_result["daily_aggregates_loaded"] = daily_loaded
+        logger.info(f"   Loaded {daily_loaded} daily aggregate rows (PostgreSQL)")
+
     def _validate_gold(self, data: list[dict[str, Any]]) -> QualityGateResult:
         """Validate Gold layer data.
 

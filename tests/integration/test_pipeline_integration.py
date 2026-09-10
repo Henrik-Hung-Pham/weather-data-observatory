@@ -105,7 +105,8 @@ def database():
 def clean_tables(database):
     """Empty the serving tables around each test."""
     statement = text(
-        "TRUNCATE data_quality_metrics, pipeline_runs, gold_weather RESTART IDENTITY CASCADE"
+        "TRUNCATE data_quality_metrics, pipeline_runs, gold_weather, gold_weather_daily "
+        "RESTART IDENTITY CASCADE"
     )
     with database.get_session() as session:
         session.execute(statement)
@@ -209,6 +210,91 @@ def test_weather_insert_is_idempotent_on_city_and_time(database, clean_tables):
     stored = database.get_weather_by_city("London")
     assert len(stored) == 1, "unique (city, recorded_at) should upsert, not duplicate"
     assert float(stored[0]["temperature_celsius"]) == 14.0
+
+
+def _daily_row(city: str = "London", **overrides: Any) -> dict[str, Any]:
+    """A rollup row shaped like GoldTransformer._daily_aggregates output.
+
+    The keys are the flattened pandas column names, deliberately -- these
+    tests exist to catch the mapping from those to the table's business
+    column names drifting.
+    """
+    row = {
+        "city": city,
+        "country": "GB",
+        "date": "2024-01-30",
+        "temperature_celsius_mean": 12.0,
+        "temperature_celsius_min": 8.0,
+        "temperature_celsius_max": 16.0,
+        "temperature_celsius_std": 2.5,
+        "humidity_mean": 65.0,
+        "pressure_mean": 1013.0,
+        "wind_speed_mean": 5.5,
+        "wind_speed_max": 9.0,
+        "clouds_percentage_mean": 10.0,
+        "observation_count": 4,
+    }
+    row.update(overrides)
+    return row
+
+
+def _read_daily(database, city: str) -> list[dict[str, Any]]:
+    with database.get_session() as session:
+        result = session.execute(
+            text("SELECT * FROM gold_weather_daily WHERE city = :city"),
+            {"city": city},
+        )
+        return [dict(r._mapping) for r in result]
+
+
+def test_daily_aggregates_land_in_the_rollup_table(database, clean_tables):
+    """insert_daily_aggregates writes gold_weather_daily.
+
+    Regression test: the table was created and indexed by sql/schema.sql but
+    no code ever wrote to it, and the aggregates were recomputed and
+    discarded on every run.
+    """
+    rows = [_daily_row("London"), _daily_row("Paris", country="FR")]
+
+    assert database.insert_daily_aggregates(rows) == 2
+
+    london = _read_daily(database, "London")
+    assert len(london) == 1
+    assert float(london[0]["temp_avg"]) == 12.0
+    assert float(london[0]["temp_min"]) == 8.0
+    assert float(london[0]["temp_max"]) == 16.0
+    assert float(london[0]["wind_speed_max"]) == 9.0
+    assert london[0]["observation_count"] == 4
+
+
+def test_daily_aggregates_upsert_on_city_and_date(database, clean_tables):
+    """A later run for the same day supersedes the earlier rollup."""
+    row = _daily_row("London")
+
+    database.insert_daily_aggregates([row])
+    database.insert_daily_aggregates(
+        [{**row, "temperature_celsius_mean": 15.0, "observation_count": 9}]
+    )
+
+    stored = _read_daily(database, "London")
+    assert len(stored) == 1, "unique (city, date) should upsert, not duplicate"
+    assert float(stored[0]["temp_avg"]) == 15.0
+    assert stored[0]["observation_count"] == 9
+
+
+def test_single_observation_std_is_stored_as_null(database, clean_tables):
+    """NaN standard deviation becomes NULL rather than a stored NaN.
+
+    pandas returns NaN for the std of a one-row group -- a city's first
+    reading of the day. Postgres NUMERIC accepts NaN, so without the
+    coercion this would store silently and poison later AVG()s.
+    """
+    database.insert_daily_aggregates(
+        [_daily_row("London", temperature_celsius_std=float("nan"), observation_count=1)]
+    )
+
+    stored = _read_daily(database, "London")
+    assert stored[0]["temp_std"] is None
 
 
 def test_run_and_quality_metrics_persist_and_join(database, clean_tables):
