@@ -6,6 +6,7 @@ across the medallion architecture (Bronze -> Silver -> Gold).
 
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -121,7 +122,7 @@ class DataPipeline:
         self._manifest: LineageManifest | None = None
 
     def run(self, cities: list[str] | None = None) -> PipelineRunResult:
-        """Execute the full data pipeline.
+        """Execute the full data pipeline, ingesting fresh data from the API.
 
         Args:
             cities: List of cities to fetch weather for. Uses settings if not provided.
@@ -129,9 +130,112 @@ class DataPipeline:
         Returns:
             PipelineRunResult with execution details.
         """
+        cities = cities or self.settings.cities_list
+
+        return self._execute(
+            cities=cities,
+            banner=f"   Cities: {', '.join(cities)}",
+            load_bronze=lambda run_ts: self._ingest_to_bronze(cities, run_ts),
+            empty_message="No data ingested from API",
+        )
+
+    def replay(
+        self,
+        start_date: datetime,
+        end_date: datetime | None = None,
+    ) -> PipelineRunResult:
+        """Re-run Silver and Gold over Bronze data already in the lake.
+
+        Bronze is the immutable record of what the source returned, which is
+        only worth keeping if it can be read back. This is that path: a bug
+        fixed in the Silver or Gold transformation can be applied to history
+        without re-fetching from the API -- which, for a current-weather
+        endpoint, would return today's readings rather than the day being
+        repaired. Before this, a Silver bug was unfixable for past data even
+        though the raw records were sitting in the lake.
+
+        No API call is made and nothing is written to Bronze. The same three
+        quality gates run in the same order as a live run, so a replay cannot
+        push data past a gate that would have blocked a live run.
+
+        Replaying a range twice is safe: the serving-layer writes upsert on
+        (city, recorded_at) and (city, date), so a repeat supersedes rather
+        than duplicates.
+
+        Args:
+            start_date: First partition date to replay (inclusive).
+            end_date: Last partition date to replay (inclusive). Defaults to
+                ``start_date`` -- i.e. a single day.
+
+        Returns:
+            PipelineRunResult with execution details.
+        """
+        end_date = end_date or start_date
+        span = f"{start_date.date().isoformat()} .. {end_date.date().isoformat()}"
+
+        return self._execute(
+            cities=[],
+            banner=f"   Replaying Bronze partitions {span}",
+            load_bronze=lambda _run_ts: self._read_bronze_range(start_date, end_date),
+            empty_message=f"No Bronze objects found in range {span}",
+        )
+
+    def _read_bronze_range(
+        self,
+        start_date: datetime,
+        end_date: datetime,
+    ) -> list[dict[str, Any]]:
+        """Read every Bronze record in a date range back out of the lake.
+
+        Args:
+            start_date: First partition date (inclusive).
+            end_date: Last partition date (inclusive).
+
+        Returns:
+            The concatenated Bronze records, oldest key first.
+        """
+        logger.info("📥 Phase 1: Reading Bronze layer back from the data lake")
+
+        keys = sorted(self.storage.list_objects("bronze", start_date=start_date, end_date=end_date))
+        logger.info(f"   Found {len(keys)} Bronze object(s) in range")
+
+        records: list[dict[str, Any]] = []
+        for key in keys:
+            payload = self.storage.read_json(key)
+            batch = payload if isinstance(payload, list) else [payload]
+            records.extend(batch)
+            # Record the sources so the replay's lineage manifest says which
+            # Bronze artifacts this run was derived from.
+            self._record_artifact("bronze_replayed", key, len(batch))
+
+        logger.info(f"   Read {len(records)} Bronze records to replay")
+        return records
+
+    def _execute(
+        self,
+        cities: list[str],
+        banner: str,
+        load_bronze: Callable[[datetime], list[dict[str, Any]]],
+        empty_message: str,
+    ) -> PipelineRunResult:
+        """Gate, transform and load a Bronze batch.
+
+        Shared by :meth:`run` and :meth:`replay` so the two cannot drift: a
+        gate added here applies to live runs and replays alike. The only
+        difference between them is where the Bronze batch comes from.
+
+        Args:
+            cities: Cities for the lineage manifest. Empty for a replay, which
+                does not know them until Bronze has been read.
+            banner: One line logged under the run header.
+            load_bronze: Produces the Bronze batch for the given run timestamp.
+            empty_message: Error raised when the batch is empty.
+
+        Returns:
+            PipelineRunResult with execution details.
+        """
         start_time = time.time()
         self.run_id = uuid4()
-        cities = cities or self.settings.cities_list
 
         result = PipelineRunResult(
             run_id=self.run_id,
@@ -151,18 +255,28 @@ class DataPipeline:
         logger.info(f"   Cities: {', '.join(cities)}")
 
         try:
-            # Phase 1: Ingest to Bronze.
-            # Bronze is the immutable raw landing zone, so the fetch is always
-            # persisted -- keeping a faithful copy of what the source returned
-            # is the point of the layer, including when it turns out to be bad.
-            # The Bronze gate below decides whether to *proceed*, not whether
-            # to land. Every gate after this one runs before its write.
-            bronze_data = self._ingest_to_bronze(cities, run_ts)
+            # Phase 1: obtain the Bronze batch.
+            #
+            # For a live run this fetches and lands it: Bronze is the immutable
+            # raw landing zone, so the fetch is always persisted -- keeping a
+            # faithful copy of what the source returned is the point of the
+            # layer, including when it turns out to be bad. The Bronze gate
+            # below decides whether to *proceed*, not whether to land. Every
+            # gate after this one runs before its write.
+            #
+            # For a replay it reads existing Bronze objects back and writes
+            # nothing: the raw layer is already the record of truth.
+            bronze_data = load_bronze(run_ts)
             result.records_ingested = len(bronze_data)
             result.cities_processed = len({r.get("city", "") for r in bronze_data})
 
             if not bronze_data:
-                raise ValueError("No data ingested from API")
+                raise ValueError(empty_message)
+
+            # A replay does not know which cities it covers until Bronze has
+            # been read, so the manifest is completed here rather than up front.
+            if self._manifest is not None and not self._manifest.cities:
+                self._manifest.cities = sorted({str(r.get("city", "")) for r in bronze_data})
 
             # Phase 2: Quality check Bronze (before any transformation)
             bronze_gate_result = self._validate_bronze(bronze_data)

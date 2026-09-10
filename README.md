@@ -262,6 +262,40 @@ See `_quarantine` in
 
 ---
 
+## ⏪ Replay (Backfill from Bronze)
+
+Bronze is the immutable record of exactly what the source returned. That is
+only worth keeping if it can be read back — so a fix to the Silver or Gold
+transformation can be applied to data already collected:
+
+```bash
+# Re-run Silver + Gold over one day of Bronze
+observatory replay --from 2024-01-30
+
+# ...or a range (inclusive on both ends)
+observatory replay --from 2024-01-30 --to 2024-02-02
+```
+
+Re-fetching is not an option here: OpenWeather's current-weather endpoint
+returns *today's* readings, not the day being repaired. Replay is the only way
+to correct history.
+
+| Property | Behaviour |
+|---|---|
+| **API calls** | None. Bronze is read from the data lake. |
+| **Bronze writes** | None. The raw layer is the record of truth, not an output. |
+| **Quality gates** | All three run, in the same order as a live run. A replay cannot push data past a gate that would have blocked a live run. |
+| **Repeat safety** | Idempotent. Serving-layer writes upsert on `(city, recorded_at)` and `(city, date)`, so replaying a range twice supersedes rather than duplicates. |
+| **Lineage** | The manifest records which Bronze objects the replay was derived from, under the `bronze_replayed` layer. |
+| **Exit codes** | `0` success, `1` failed, `2` blocked by a quality gate — same contract as `observatory run`. |
+
+`run` and `replay` share one gated code path (`DataPipeline._execute`), so a
+gate added for live runs applies to backfills automatically; the two cannot
+drift apart. The only difference between them is where the Bronze batch comes
+from.
+
+---
+
 ## 🧬 Data Lineage
 
 Every run writes a **lineage manifest** to the `lineage/` prefix in the data

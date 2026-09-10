@@ -3,6 +3,7 @@
 import argparse
 import logging
 import sys
+from datetime import datetime, timezone
 
 from data_pipeline.config import get_settings
 from data_pipeline.logging_config import configure_logging
@@ -35,6 +36,36 @@ def main() -> int:
         help="Quality gate mode (default: block)",
     )
 
+    # Replay command
+    replay_parser = subparsers.add_parser(
+        "replay",
+        help="Re-run Silver and Gold over Bronze data already in the data lake",
+        description=(
+            "Replay a range of Bronze partitions through the Silver and Gold "
+            "stages without calling the weather API. Use this to apply a "
+            "transformation fix to history: re-fetching is not an option for a "
+            "current-weather source, which would return today's readings "
+            "rather than the day being repaired. The same three quality gates "
+            "run as in a live run, and the serving-layer writes upsert, so "
+            "replaying a range twice is safe."
+        ),
+    )
+    replay_parser.add_argument(
+        "--from",
+        dest="from_date",
+        type=_utc_date,
+        required=True,
+        metavar="YYYY-MM-DD",
+        help="First Bronze partition date to replay (inclusive)",
+    )
+    replay_parser.add_argument(
+        "--to",
+        dest="to_date",
+        type=_utc_date,
+        metavar="YYYY-MM-DD",
+        help="Last Bronze partition date to replay (inclusive; defaults to --from)",
+    )
+
     # Dashboard command
     subparsers.add_parser("dashboard", help="Start the Streamlit dashboard")
 
@@ -54,6 +85,8 @@ def main() -> int:
 
     if args.command == "run":
         return run_pipeline(args)
+    elif args.command == "replay":
+        return replay_pipeline(args)
     elif args.command == "dashboard":
         return run_dashboard()
     elif args.command == "validate":
@@ -63,6 +96,49 @@ def main() -> int:
     else:
         parser.print_help()
         return 0
+
+
+def _utc_date(value: str) -> datetime:
+    """Parse a ``YYYY-MM-DD`` CLI argument into a UTC datetime.
+
+    Raises:
+        argparse.ArgumentTypeError: If the value is not an ISO date, so the
+            user gets argparse's usage message rather than a traceback.
+    """
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected a date as YYYY-MM-DD, got {value!r}") from None
+
+
+def replay_pipeline(args: argparse.Namespace) -> int:
+    """Replay Bronze partitions through Silver and Gold."""
+    from data_pipeline.pipeline import DataPipeline
+
+    if args.to_date and args.to_date < args.from_date:
+        logger.error("--to must not be earlier than --from")
+        return 1
+
+    try:
+        pipeline = DataPipeline()
+        result = pipeline.replay(start_date=args.from_date, end_date=args.to_date)
+
+        if result.status == "success":
+            logger.info(
+                f"✅ Replay completed: {result.records_ingested} Bronze records "
+                f"-> {result.records_loaded} loaded"
+            )
+            return 0
+        elif result.status == "blocked":
+            logger.error(f"🛑 Replay blocked: {result.quality_gate_reason}")
+            return 2
+        else:
+            logger.error(f"❌ Replay failed: {result.error_message}")
+            return 1
+
+    except Exception as e:
+        logger.error(f"Replay failed: {e}")
+        return 1
 
 
 def run_pipeline(args: argparse.Namespace) -> int:
