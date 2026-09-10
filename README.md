@@ -319,6 +319,32 @@ push/PR is scanned by the [`Security`](.github/workflows/security.yml) workflow:
 [Dependabot](.github/dependabot.yml) opens weekly update PRs for pip packages,
 GitHub Actions, and Docker base images.
 
+### Container image provenance
+
+Images pushed to GHCR by the [`Deploy`](.github/workflows/deploy.yml) workflow
+carry an SBOM and SLSA provenance, and are signed with
+[cosign](https://github.com/sigstore/cosign) keyless (Sigstore OIDC — no
+long-lived signing key). Signing is by **digest**, not tag: a tag can be
+repointed after signing, a digest cannot.
+
+Verify a pulled image before running it:
+
+```bash
+cosign verify \
+  --certificate-identity-regexp '^https://github\.com/Henrik-Hung-Pham/weather-data-observatory/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/henrik-hung-pham/weather-data-observatory@sha256:<digest>
+```
+
+Inspect the attached SBOM:
+
+```bash
+cosign download sbom ghcr.io/henrik-hung-pham/weather-data-observatory@sha256:<digest>
+```
+
+The base image is pinned by digest in the [`Dockerfile`](Dockerfile) as well,
+so a rebuild of the same commit produces the same layers.
+
 ### Regenerating the lock file
 
 `requirements.lock` is compiled from `requirements.txt` with fully pinned,

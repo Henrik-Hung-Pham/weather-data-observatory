@@ -1,5 +1,11 @@
 # Build stage
-FROM python:3.11-slim as builder
+#
+# Pinned by digest, not just by tag. `python:3.11-slim` is a moving target --
+# the official images are rebuilt regularly, so two builds of the *same commit*
+# could sit on different base layers with different CVEs. The tag is kept
+# alongside the digest for readability, and Dependabot's docker ecosystem
+# (see .github/dependabot.yml) proposes the bump when the tag moves.
+FROM python:3.11-slim@sha256:9534e5a8e315485d4061ed659af0fd78a284c015f9b73661b41d6bab25604534 AS builder
 
 WORKDIR /app
 
@@ -14,7 +20,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --user -r requirements.txt
 
 # Production stage
-FROM python:3.11-slim as production
+FROM python:3.11-slim@sha256:9534e5a8e315485d4061ed659af0fd78a284c015f9b73661b41d6bab25604534 AS production
 
 WORKDIR /app
 
@@ -53,7 +59,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 CMD ["python", "-m", "data_pipeline.pipeline"]
 
 # Dashboard stage
-FROM production as dashboard
+FROM production AS dashboard
 
 COPY --chown=app:app dashboard/ ./dashboard/
 
