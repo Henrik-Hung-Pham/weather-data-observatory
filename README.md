@@ -309,12 +309,14 @@ push/PR is scanned by the [`Security`](.github/workflows/security.yml) workflow:
 | Check | Tool | Gate |
 |-------|------|------|
 | Secret scanning | gitleaks | 🔴 blocking |
-| Dependency CVEs | pip-audit (against `requirements.lock`) | 🟡 advisory* |
+| Dependency CVEs | pip-audit (against `requirements.lock`) | 🔴 blocking |
 | Python SAST | bandit | 🟡 advisory* |
 | Filesystem / IaC / secrets | Trivy | 🟡 advisory* |
 
-*Advisory scans report findings but don't fail CI yet; promote them to blocking
-(remove `continue-on-error`) once they're clean on `main`.
+*The remaining advisory scans report findings but don't fail CI yet; promote
+them to blocking (remove `continue-on-error`) once they're clean on `main`.
+`bandit` currently reports no medium- or high-severity findings, so it is the
+next one ready to be promoted.
 
 [Dependabot](.github/dependabot.yml) opens weekly update PRs for pip packages,
 GitHub Actions, and Docker base images.

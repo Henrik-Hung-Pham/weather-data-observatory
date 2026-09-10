@@ -32,9 +32,16 @@ jobs:
   dependency-audit:
     name: Dependency Audit (pip-audit)
     runs-on: ubuntu-latest
-    # Advisory while the dependency set is being modernised; promote to a hard
-    # gate (remove continue-on-error) once the audit is clean on main.
-    continue-on-error: true
+    # Blocking. This was advisory "while the dependency set is being
+    # modernised"; that modernisation is done -- the lock is regenerated from
+    # the current requirements.txt and `pip-audit -r requirements.lock
+    # --strict` reports no known vulnerabilities, so the gate can hold.
+    #
+    # A failure here usually means a new CVE was published against a pinned
+    # version, not that the PR is wrong -- and it will fail on every open PR
+    # at once. Fix it by bumping the affected package and regenerating the
+    # lock (see README, "Regenerating the lock file"). Do not re-add
+    # continue-on-error to get back to green.
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
