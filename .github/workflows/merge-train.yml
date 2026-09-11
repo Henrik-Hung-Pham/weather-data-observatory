@@ -65,8 +65,11 @@ jobs:
         # matches CI, so requirements.lock can also be regenerated properly.
         run: |
           python -m pip install --upgrade pip
-          pip install ruff mypy pytest pytest-cov pip-tools
-          pip install -r requirements.txt
+          # pip-tools is the only tool not in the lock (it regenerates the
+          # lock, so it can't be pinned by it). ruff/mypy/pytest all are, so
+          # the train runs the same tool versions CI does.
+          pip install pip-tools
+          pip install --require-hashes -r requirements.lock
 
       - name: Identify as the merge train
         run: |
