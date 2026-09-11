@@ -25,8 +25,9 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install ruff mypy
-          pip install -r requirements.txt
+          # ruff and mypy are pinned in the lock -- installing them separately
+          # would float the very tools that decide whether CI is green.
+          pip install --require-hashes -r requirements.lock
       
       # Lint everything we ship or test. Checking only data_pipeline/ left
       # about a third of the codebase unlinted: dashboard/ and tests/ had 147
@@ -62,7 +63,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install --require-hashes -r requirements.lock
       
       - name: Run Unit Tests
         # --cov-fail-under is a ratchet, not a target: it stops coverage
@@ -120,7 +121,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install --require-hashes -r requirements.lock
       
       - name: Wait for services
         run: |
@@ -217,7 +218,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install --require-hashes -r requirements.lock
       
       - name: Quality Gate Configuration Check
         run: |
