@@ -15,9 +15,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first for better caching
-COPY requirements.txt .
-RUN pip install --no-cache-dir --user -r requirements.txt
+# Copy the lock first for better caching.
+#
+# The lock -- not requirements.txt -- is what gets installed. requirements.txt
+# carries open ranges (`pandas>=2.0.0`), so two builds a week apart shipped
+# different dependency trees. requirements.lock is fully pinned with hashes,
+# and --require-hashes makes pip refuse any artifact whose hash doesn't match.
+#
+# This is also what makes the Security workflow's `pip-audit -r
+# requirements.lock` meaningful: it now audits exactly what the image ships,
+# rather than a file nothing installed.
+COPY requirements.lock .
+RUN pip install --no-cache-dir --user --require-hashes -r requirements.lock
 
 # Production stage
 FROM python:3.11-slim@sha256:9534e5a8e315485d4061ed659af0fd78a284c015f9b73661b41d6bab25604534 AS production
