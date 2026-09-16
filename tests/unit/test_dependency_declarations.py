@@ -25,6 +25,7 @@ _MODULE_TO_DISTRIBUTION = {
     "pydantic_settings": "pydantic-settings",
     "sqlalchemy": "sqlalchemy",
     "psycopg2": "psycopg2-binary",
+    "prometheus_client": "prometheus-client",
 }
 
 # Modules that legitimately need no direct declaration.
