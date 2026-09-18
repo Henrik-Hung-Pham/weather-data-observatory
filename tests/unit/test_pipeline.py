@@ -51,11 +51,16 @@ class FakeStorage:
 class FakeDatabase:
     def __init__(self) -> None:
         self.weather_rows: list[dict] = []
+        self.daily_rows: list[dict] = []
         self.runs: list[dict] = []
         self.metrics: list[dict] = []
 
     def insert_weather_data(self, records) -> int:
         self.weather_rows.extend(records)
+        return len(records)
+
+    def insert_daily_aggregates(self, records) -> int:
+        self.daily_rows.extend(records)
         return len(records)
 
     def insert_pipeline_run(self, run_result) -> None:
@@ -329,6 +334,51 @@ def test_records_loaded_reflects_a_partial_load(sample_bronze_data):
     assert result.records_transformed == 2
     # Two were offered, one landed -- and the run says one.
     assert result.records_loaded == 1
+
+
+# ---------------------------------------------------------------------------
+# Daily rollups reach the serving layer
+# ---------------------------------------------------------------------------
+@pytest.mark.unit
+def test_success_persists_daily_aggregates(sample_bronze_data):
+    """The daily rollup lands in the serving layer, not just in memory.
+
+    Regression test: ``gold_weather_daily`` was created and indexed by
+    sql/schema.sql but nothing ever wrote to it. The Gold transformer computed
+    the aggregates on every run and ``_load_gold`` dropped them on the floor.
+    """
+    database = FakeDatabase()
+    pipeline = _make_pipeline(sample_bronze_data, database=database)
+
+    result = pipeline.run(cities=["London", "Paris"])
+
+    assert result.status == "success"
+    # One row per (city, date) -- two cities on a single run timestamp.
+    assert len(database.daily_rows) == 2
+    assert {row["city"] for row in database.daily_rows} == {"London", "Paris"}
+
+
+@pytest.mark.unit
+def test_daily_aggregate_failure_fails_the_run(sample_bronze_data):
+    """A rollup that cannot be written is a failed run, not a quiet warning.
+
+    The rollup is recomputable from ``gold_weather``, but only if the run
+    reports that it failed. Swallowing this would leave the dashboard showing
+    a day that looks like it had no weather.
+    """
+
+    class BrokenRollup(FakeDatabase):
+        def insert_daily_aggregates(self, records):
+            raise RuntimeError("rollup table missing")
+
+    alerter = FakeAlerter()
+    pipeline = _make_pipeline(sample_bronze_data, database=BrokenRollup(), alerter=alerter)
+
+    result = pipeline.run(cities=["London", "Paris"])
+
+    assert result.status == "failed"
+    assert "rollup table missing" in result.error_message
+    assert alerter.alerts and alerter.alerts[0]["status"] == "failed"
 
 
 # ---------------------------------------------------------------------------

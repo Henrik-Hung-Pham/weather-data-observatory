@@ -36,6 +36,9 @@ class FakeDatabase:
     def insert_weather_data(self, records) -> int:
         return len(records)
 
+    def insert_daily_aggregates(self, records) -> int:
+        return len(records)
+
     def insert_pipeline_run(self, run_result) -> None:
         pass
 
