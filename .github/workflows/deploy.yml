@@ -18,6 +18,9 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # Keyless cosign signing exchanges this OIDC token for a short-lived
+      # Sigstore certificate -- no long-lived signing key to store or rotate.
+      id-token: write
     
     steps:
       - uses: actions/checkout@v6
@@ -45,6 +48,7 @@ jobs:
             type=sha
       
       - name: Build and push Pipeline image
+        id: build-pipeline
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -54,6 +58,11 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          # Attach an SBOM and full SLSA provenance to the pushed image, so
+          # "what is actually in this image, and what built it" is answerable
+          # from the registry rather than by guessing from the Dockerfile.
+          sbom: true
+          provenance: mode=max
       
       - name: Extract dashboard metadata
         id: meta-dashboard
@@ -68,6 +77,7 @@ jobs:
             type=sha
 
       - name: Build and push Dashboard image
+        id: build-dashboard
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -77,6 +87,32 @@ jobs:
           labels: ${{ steps.meta-dashboard.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          sbom: true
+          provenance: mode=max
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3.10.0
+
+      # Sign by digest, not by tag: a tag can be repointed after signing,
+      # a digest cannot. One signature covers every tag metadata-action
+      # produced for that build.
+      - name: Sign the pushed images
+        env:
+          PIPELINE_DIGEST: ${{ steps.build-pipeline.outputs.digest }}
+          DASHBOARD_DIGEST: ${{ steps.build-dashboard.outputs.digest }}
+        run: |
+          set -euo pipefail
+          # Image names must be lowercase: IMAGE_NAME carries the owner's
+          # original casing (github.repository) and ghcr.io rejects uppercase.
+          pipeline_image=$(echo "${REGISTRY}/${IMAGE_NAME}" | tr '[:upper:]' '[:lower:]')
+          dashboard_image="${pipeline_image}-dashboard"
+
+          cosign sign --yes "${pipeline_image}@${PIPELINE_DIGEST}"
+          cosign sign --yes "${dashboard_image}@${DASHBOARD_DIGEST}"
+
+          echo "Signed:"
+          echo "  ${pipeline_image}@${PIPELINE_DIGEST}"
+          echo "  ${dashboard_image}@${DASHBOARD_DIGEST}"
 
   validate-infrastructure:
     name: Validate Infrastructure
