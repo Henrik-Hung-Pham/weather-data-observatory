@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Project governance: `SECURITY.md`, `CONTRIBUTING.md`, and a `CODEOWNERS` file.
 
+### Security
+- Bumped the locked `gitpython` to 3.1.60, clearing PYSEC-2026-3982/3983/3984.
+
 ### Changed
 - Removed the obsolete `version:` key from `docker-compose.yml` (ignored by
   Compose v2).
