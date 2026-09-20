@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Tests for the Streamlit dashboard (every page, through Streamlit's
+  AppTest harness) and for the CLI entry point, neither of which had any.
+  `dashboard/` is now inside the CI coverage ratchet.
 - Project governance: `SECURITY.md`, `CONTRIBUTING.md`, and a `CODEOWNERS` file.
 
 ### Changed
