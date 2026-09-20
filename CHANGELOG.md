@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Project governance: `SECURITY.md`, `CONTRIBUTING.md`, and a `CODEOWNERS` file.
 
 ### Changed
+- `bandit` SAST is now a blocking CI gate instead of advisory.
 - Removed the obsolete `version:` key from `docker-compose.yml` (ignored by
   Compose v2).
 
