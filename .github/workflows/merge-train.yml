@@ -19,6 +19,10 @@ on:
   # trains live at once is not hypothetical -- it happened on 2026-09-07, when
   # the routine merged #25 at 06:35 while Actions was failing at the same slot.
   #
+  # Check the funding worked with a manual `workflow_dispatch` before
+  # uncommenting: the preflight step answers "can this key spend?" in about
+  # two seconds, without billing an hour of Opus to find out.
+  #
   # 06:30 UTC on weekdays == 09:30 Europe/Helsinki while EEST holds, and 08:30
   # after DST ends 2026-10-25. GitHub cron is always UTC, and delays scheduled
   # runs under load -- the 2026-09-07 fire started 6h20m late.
@@ -45,6 +49,92 @@ jobs:
     timeout-minutes: 60
 
     steps:
+      # -----------------------------------------------------------------------
+      # Preflight. Three different things have stopped this workflow, and all
+      # three printed the same thing: `Claude execution failed: result
+      # is_error:true`, exit code 1, nothing else.
+      #
+      #   1. No repository secrets at all (`gh secret list` was empty).
+      #   2. github_token passed as the GH_TOKEN env var instead of the
+      #      action's input, so it fell back to OIDC and tried to mint a
+      #      GitHub App token this repo has no app for (fixed in a1083df --
+      #      and the symptom, "Did you remember to add id-token: write?",
+      #      points at the wrong fix entirely).
+      #   3. An API account with no credits. A Claude Pro/Max subscription
+      #      does not fund an API key; the runner bills the API account
+      #      separately, so a working local `claude` CLI proves nothing.
+      #
+      # The action runs the SDK with "full output hidden for security", so it
+      # cannot tell you which one you hit. Diagnosing (3) took a day of
+      # reading run logs for a fact the API states outright if asked.
+      #
+      # These checks take about two seconds and name the problem before
+      # anything is installed or billed. They run first for that reason.
+      # -----------------------------------------------------------------------
+      - name: Preflight - can this run actually do anything?
+        env:
+          MERGE_TRAIN_TOKEN: ${{ secrets.MERGE_TRAIN_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          set -uo pipefail
+
+          fail() { echo "::error title=Merge train preflight::$1"; exit 1; }
+
+          # --- 1. The secrets exist ------------------------------------------
+          if [ -z "${MERGE_TRAIN_TOKEN}" ]; then
+            fail "MERGE_TRAIN_TOKEN is not set. The action needs it as its github_token input; without it the action falls back to OIDC and fails before Claude starts. Needs Contents RW, Pull requests RW, Issues RW, Workflows RW (PRs that touch .github/workflows are rejected without it) and Actions Read."
+          fi
+          if [ -z "${ANTHROPIC_API_KEY}" ]; then
+            fail "ANTHROPIC_API_KEY is not set. Add it under Settings > Secrets and variables > Actions."
+          fi
+
+          # --- 2. The token can actually push --------------------------------
+          # A token that reads but cannot write gets all the way to the merge
+          # before failing, an hour in.
+          push_allowed=$(GH_TOKEN="${MERGE_TRAIN_TOKEN}" gh api "repos/${GITHUB_REPOSITORY}" --jq '.permissions.push' 2>/dev/null) || push_allowed=""
+          if [ "${push_allowed}" != "true" ]; then
+            fail "MERGE_TRAIN_TOKEN cannot push to ${GITHUB_REPOSITORY} (or is expired/revoked: the API did not confirm push permission). Check the token's repository access and its Contents permission."
+          fi
+
+          # --- 3. The API key can actually spend -----------------------------
+          # An authentication check is not enough: the key that failed every
+          # run in September authenticated fine and had no credits. The only
+          # honest test is asking the API to do one token of work. This costs
+          # a fraction of a cent.
+          http_status=$(curl -sS -o /tmp/preflight-response.json -w '%{http_code}' -X POST https://api.anthropic.com/v1/messages -H "x-api-key: ${ANTHROPIC_API_KEY}" -H "anthropic-version: 2023-06-01" -H "content-type: application/json" -d '{"model":"claude-haiku-4-5-20251001","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}') || fail "Could not reach api.anthropic.com at all. Network, or an outage: https://status.anthropic.com"
+
+          # Print only the API's own error message -- never the request, which
+          # carries the key.
+          api_error=$(jq -r '.error.message // empty' /tmp/preflight-response.json 2>/dev/null)
+          api_error_type=$(jq -r '.error.type // empty' /tmp/preflight-response.json 2>/dev/null)
+
+          case "${http_status}" in
+            200)
+              echo "Preflight OK: secrets present, token can push, API key can spend."
+              ;;
+            401)
+              fail "ANTHROPIC_API_KEY was rejected (401 ${api_error_type}). The key is wrong, revoked, or belongs to a different organisation: ${api_error}"
+              ;;
+            429)
+              # Rate limiting is transient and says nothing about the account,
+              # so it is a warning rather than a stop.
+              echo "::warning title=Merge train preflight::Rate limited on the preflight call (429). Continuing, but the run may hit the same limit: ${api_error}"
+              ;;
+            *)
+              case "${api_error}${api_error_type}" in
+                *redit*|*billing*|*Billing*)
+                  fail "The Anthropic API account has no credits (HTTP ${http_status}, ${api_error_type}): ${api_error} -- Fund it at https://console.anthropic.com/settings/billing. A Claude Pro/Max subscription does NOT fund an API key; the runner bills the API account separately."
+                  ;;
+                *)
+                  fail "Unexpected response from the Anthropic API (HTTP ${http_status}, ${api_error_type}): ${api_error}"
+                  ;;
+              esac
+              ;;
+          esac
+
+          # --- 4. The reminder no check can enforce --------------------------
+          echo "::notice title=Two trains::Before re-enabling the schedule, disable the claude.ai routine at https://claude.ai/code/routines. On 2026-09-07 both ran at the same slot and the routine merged a PR while this workflow was failing."
+
       - uses: actions/checkout@v6
         with:
           # Full history: the run compares branches with `git merge-tree`.
