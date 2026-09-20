@@ -91,13 +91,56 @@ def test_every_imported_third_party_module_is_declared() -> None:
     )
 
 
+def _locked_distributions() -> set[str]:
+    """Distribution names pinned in requirements.lock."""
+    locked: set[str] = set()
+    for line in (REPO_ROOT / "requirements.lock").read_text(encoding="utf-8").splitlines():
+        if not line or line[0] in " #":
+            continue
+        name, separator, _ = line.partition("==")
+        if separator:
+            # pip normalises "_" and "." to "-" when comparing names.
+            locked.add(name.strip().lower().replace("_", "-").replace(".", "-"))
+    return locked
+
+
+@pytest.mark.unit
+def test_requirements_lock_pins_every_declared_dependency() -> None:
+    """The lock is what actually gets installed, so a gap here ships.
+
+    `plotly` was declared in requirements.txt and pyproject, passed both
+    checks above, and was missing from requirements.lock — which meant the
+    dashboard image installed everything except the library `dashboard/app.py`
+    imports at module scope. The container built green and died on `import
+    plotly` the moment it started.
+
+    Nothing caught it because the two tests above compare the declarations
+    with each other, and the lock is a third artifact neither of them reads.
+    """
+    declared = {
+        line.split(">")[0].split("<")[0].split("=")[0].strip().lower()
+        for line in (REPO_ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.startswith("#")
+    }
+    normalised = {name.replace("_", "-").replace(".", "-") for name in declared}
+
+    missing_from_lock = normalised - _locked_distributions()
+    assert not missing_from_lock, (
+        "Declared in requirements.txt but not pinned in requirements.lock, so "
+        "the Docker images and every CI job install without it: "
+        f"{sorted(missing_from_lock)}. Regenerate the lock (see README, "
+        "'Regenerating the lock file')."
+    )
+
+
 @pytest.mark.unit
 def test_requirements_txt_matches_pyproject_runtime_deps() -> None:
     """The two dependency lists must not drift apart.
 
-    The Docker images install requirements.txt while `pip install -e .` uses
-    pyproject, so a dependency present in only one of them produces an image
-    that behaves differently from a local checkout.
+    `pip install -e .` uses pyproject while the images and CI install the
+    lock, which is compiled from requirements.txt — so a dependency present in
+    only one of them produces an image that behaves differently from a local
+    checkout.
     """
     requirements = {
         line.split(">")[0].split("<")[0].split("=")[0].strip().lower()
