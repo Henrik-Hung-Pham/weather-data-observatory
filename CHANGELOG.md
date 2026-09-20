@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Prometheus alerting rules (`infra/prometheus/alerts.yml`), including a dead
+  man's switch for a pipeline that stops running at all.
 - Project governance: `SECURITY.md`, `CONTRIBUTING.md`, and a `CODEOWNERS` file.
 
 ### Changed

@@ -282,6 +282,21 @@ Exported series include:
 
 See [`data_pipeline/metrics.py`](data_pipeline/metrics.py).
 
+### Alerting rules
+
+Exporting a metric nobody watches is a dashboard, not monitoring.
+[`infra/prometheus/alerts.yml`](infra/prometheus/alerts.yml) holds the rules
+that close the loop — failed and blocked runs, critical quality issues, gates
+that errored, and records ingested but never loaded.
+
+The important one is **`PipelineRunMissing`**, a dead man's switch on the age
+of `observatory_pipeline_last_run_timestamp_seconds`. Pushgateway samples
+never go stale, so a scheduler that quietly stops firing changes nothing any
+counter-based rule can see; the timestamp's age is the only honest signal that
+the job is still alive. See
+[`infra/prometheus/README.md`](infra/prometheus/README.md) for wiring and the
+assumptions the thresholds make.
+
 ---
 
 ## 🔁 Self-Healing (Quarantine)
