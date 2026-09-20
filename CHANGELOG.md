@@ -10,7 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Project governance: `SECURITY.md`, `CONTRIBUTING.md`, and a `CODEOWNERS` file.
 
+### Security
+- The RDS master password is generated and rotated by AWS in Secrets
+  Manager (`manage_master_user_password`) instead of being passed in as a
+  Terraform variable, where it was written to the state file in plaintext.
+
 ### Changed
+- Terraform: remote S3 state with native locking, the serving layer moved
+  into a caller-supplied VPC behind its own security group, deletion
+  protection and final snapshots on by default, and lifecycle rules for the
+  data lake and both ECR repositories.
 - Removed the obsolete `version:` key from `docker-compose.yml` (ignored by
   Compose v2).
 

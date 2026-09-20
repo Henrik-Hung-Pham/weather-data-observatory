@@ -4,6 +4,25 @@ project_name          = "data-observatory"
 environment           = "staging"
 data_lake_bucket_name = "data-observatory-lake-CHANGE-ME"
 
-# Provide the DB password out-of-band instead of committing it:
-#   export TF_VAR_db_password="..."
-# db_password = "..."
+# Network placement for the serving layer. Required: the instance is no longer
+# left to land wherever the account's default VPC puts it.
+#
+# private_subnet_ids needs at least two subnets in different availability
+# zones -- RDS requires that even for a single-AZ instance.
+vpc_id             = "vpc-CHANGE-ME"
+private_subnet_ids = ["subnet-CHANGE-ME-a", "subnet-CHANGE-ME-b"]
+
+# Who may reach Postgres on 5432. Scope this to the subnets that actually run
+# the pipeline and the dashboard, not to the whole VPC.
+allowed_postgres_cidr_blocks = ["10.0.0.0/24"]
+
+# There is no db_password. The master credential is generated and rotated by
+# AWS in Secrets Manager (manage_master_user_password), so it never enters the
+# Terraform state. Read it from the serving_db_master_secret_arn output.
+
+# Production-shaped defaults are already on: deletion protection, a final
+# snapshot, and 7 days of backups. Override to tear an environment down:
+# db_deletion_protection = false
+#
+# Multi-AZ roughly doubles the instance cost; leave it off outside production:
+# db_multi_az = true
