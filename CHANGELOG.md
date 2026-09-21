@@ -13,6 +13,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `dashboard/` is now inside the CI coverage ratchet.
 - Project governance: `SECURITY.md`, `CONTRIBUTING.md`, and a `CODEOWNERS` file.
 
+### Fixed
+- `plotly` was declared in `requirements.txt` but missing from
+  `requirements.lock`, so the dashboard image installed everything except
+  the library `dashboard/app.py` imports at module scope. Added, with a test
+  that fails when a declared dependency is not pinned in the lock.
+
+### Security
+- Bumped the locked `gitpython` to 3.1.60 (PYSEC-2026-3982/3983/3984) and
+  `anyio` to 4.14.2 (CVE-2026-63374/63349/64847).
+
 ### Changed
 - Removed the obsolete `version:` key from `docker-compose.yml` (ignored by
   Compose v2).
