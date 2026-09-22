@@ -91,7 +91,7 @@ jobs:
           provenance: mode=max
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@v3.10.0
+        uses: sigstore/cosign-installer@v4.1.2
 
       # Sign by digest, not by tag: a tag can be repointed after signing,
       # a digest cannot. One signature covers every tag metadata-action
