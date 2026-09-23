@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `anyio` to 4.14.2 (CVE-2026-63374/63349/64847).
 
 ### Changed
+- `bandit` SAST is now a blocking CI gate instead of advisory.
 - Removed the obsolete `version:` key from `docker-compose.yml` (ignored by
   Compose v2).
 
