@@ -349,13 +349,13 @@ push/PR is scanned by the [`Security`](.github/workflows/security.yml) workflow:
 |-------|------|------|
 | Secret scanning | gitleaks | 🔴 blocking |
 | Dependency CVEs | pip-audit (against `requirements.lock`) | 🔴 blocking |
-| Python SAST | bandit | 🟡 advisory* |
+| Python SAST | bandit (medium+ severity and confidence) | 🔴 blocking |
 | Filesystem / IaC / secrets | Trivy | 🟡 advisory* |
 
-*The remaining advisory scans report findings but don't fail CI yet; promote
-them to blocking (remove `continue-on-error`) once they're clean on `main`.
-`bandit` currently reports no medium- or high-severity findings, so it is the
-next one ready to be promoted.
+*Trivy still reports findings without failing CI. Promote it to blocking
+(remove `continue-on-error`) once it's clean on `main` — most of what it
+currently flags is Terraform misconfiguration, which is being fixed
+separately.
 
 [Dependabot](.github/dependabot.yml) opens weekly update PRs for pip packages,
 GitHub Actions, and Docker base images.
