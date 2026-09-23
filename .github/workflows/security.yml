@@ -55,7 +55,17 @@ jobs:
   sast:
     name: SAST (bandit)
     runs-on: ubuntu-latest
-    continue-on-error: true
+    # Blocking. bandit reports no medium- or high-severity findings on `main`
+    # at the `-ll -ii` threshold this job uses, so the gate can hold -- and an
+    # advisory SAST scan is only a gate in the sense that someone might read
+    # it.
+    #
+    # The threshold is deliberate: `-ll -ii` means medium+ severity AND
+    # medium+ confidence. Low-confidence findings on a codebase this size are
+    # overwhelmingly `subprocess` and `assert` false positives, and a gate
+    # that cries wolf gets switched off. If a finding here is genuinely a
+    # false positive, mark that line `# nosec <rule>` with a reason -- do not
+    # re-add continue-on-error.
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6

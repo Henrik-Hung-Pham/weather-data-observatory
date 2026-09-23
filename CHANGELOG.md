@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   into a caller-supplied VPC behind its own security group, deletion
   protection and final snapshots on by default, and lifecycle rules for the
   data lake and both ECR repositories.
+- `bandit` SAST is now a blocking CI gate instead of advisory.
 - Removed the obsolete `version:` key from `docker-compose.yml` (ignored by
   Compose v2).
 
