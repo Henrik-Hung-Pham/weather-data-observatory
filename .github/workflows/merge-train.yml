@@ -45,7 +45,7 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           # Full history: the run compares branches with `git merge-tree`.
           fetch-depth: 0
