@@ -24,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `anyio` to 4.14.2 (CVE-2026-63374/63349/64847).
 
 ### Changed
+- The `deploy-staging` / `deploy-production` jobs no longer present themselves
+  as deployments: they are renamed as placeholders, emit a warning annotation,
+  and no longer record fictional deployments against GitHub Environments.
 - `bandit` SAST is now a blocking CI gate instead of advisory.
 - Removed the obsolete `version:` key from `docker-compose.yml` (ignored by
   Compose v2).
