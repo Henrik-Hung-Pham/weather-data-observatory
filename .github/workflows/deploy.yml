@@ -146,38 +146,59 @@ jobs:
             echo "No Terraform configuration found, skipping..."
           fi
 
+  # ---------------------------------------------------------------------------
+  # These two jobs do not deploy anything. They are kept as the wiring for a
+  # real deployment -- the ordering, the ref conditions, and the image
+  # coordinates are all correct -- but the step that would talk to a cluster
+  # does not exist yet. See the roadmap in the README.
+  #
+  # What changed here, and why it matters more than it looks:
+  #
+  #   * The names said "Deploy to Staging" and "Deploy to Production", and the
+  #     jobs went green. A green job with that name is a claim that something
+  #     shipped. Anyone reading the Actions tab -- including the person who
+  #     wrote it, six months later -- would believe it.
+  #
+  #   * `environment: staging` / `environment: production` recorded a
+  #     deployment in the repository's Environments tab on every push to main
+  #     and every tag. That is a permanent, visible record of deployments that
+  #     never happened; GitHub will happily show "deployed 2 minutes ago" for
+  #     a job whose entire body is an echo. Restore these blocks along with
+  #     the real deploy step -- together with any required reviewers, which is
+  #     the point of an environment in the first place.
+  #
+  # The jobs still run, and still fail if the image or the Terraform is
+  # broken. They simply no longer claim to have deployed it.
+  # ---------------------------------------------------------------------------
   deploy-staging:
-    name: Deploy to Staging
+    name: Staging deployment (placeholder -- nothing is deployed)
     runs-on: ubuntu-latest
     needs: [build-and-push, validate-infrastructure]
-    environment:
-      name: staging
     if: github.ref == 'refs/heads/main'
-    
+
     steps:
-      - uses: actions/checkout@v6
-      
-      - name: Deploy notification
+      # ::warning:: surfaces in the run summary and on the job, so a green
+      # check does not read as a successful deployment at a glance.
+      - name: Say plainly that nothing was deployed
         run: |
-          echo "🚀 Deploying to staging environment..."
-          echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
-          # Add your deployment commands here
-          # e.g., kubectl, aws ecs update-service, etc.
+          echo "::warning title=No deployment::deploy-staging is a placeholder. The image was built, signed and pushed to GHCR, but nothing consumed it."
+          echo "Image a real deploy would roll out:"
+          echo "  ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${GITHUB_SHA::7}"
+          echo "Implement: pull that digest and update the running service"
+          echo "(aws ecs update-service, kubectl set image, or similar)."
 
   deploy-production:
-    name: Deploy to Production
+    name: Production deployment (placeholder -- nothing is deployed)
     runs-on: ubuntu-latest
     needs: deploy-staging
-    environment:
-      name: production
     if: startsWith(github.ref, 'refs/tags/v')
-    
+
     steps:
-      - uses: actions/checkout@v6
-      
-      - name: Deploy notification
+      - name: Say plainly that nothing was deployed
         run: |
-          echo "🚀 Deploying to production environment..."
-          echo "Tag: ${{ github.ref_name }}"
-          echo "Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}"
-          # Add your production deployment commands here
+          echo "::warning title=No deployment::deploy-production is a placeholder. Tag ${{ github.ref_name }} was published to GHCR, but nothing consumed it."
+          echo "Image a real deploy would roll out:"
+          echo "  ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.ref_name }}"
+          echo "Before this becomes real: restore environment: production with"
+          echo "required reviewers, and promote the exact digest staging ran,"
+          echo "not a freshly built tag."
