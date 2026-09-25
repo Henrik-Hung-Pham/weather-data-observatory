@@ -96,7 +96,7 @@ addopts = "-v --tb=short"
 filterwarnings = ["ignore::DeprecationWarning"]
 
 [tool.coverage.run]
-source = ["data_pipeline"]
+source = ["data_pipeline", "dashboard"]
 branch = true
 
 [tool.coverage.report]
