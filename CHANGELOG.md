@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- A preflight step in the PR merge train that checks the secrets, the
+  token's push permission, and whether the API key can actually spend
+  before an hour of work is billed.
 - Project governance: `SECURITY.md`, `CONTRIBUTING.md`, and a `CODEOWNERS` file.
 
 ### Fixed
