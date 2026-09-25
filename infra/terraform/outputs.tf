@@ -22,3 +22,13 @@ output "serving_db_endpoint" {
   description = "Connection endpoint for the Postgres serving layer."
   value       = aws_db_instance.serving.endpoint
 }
+
+output "serving_db_master_secret_arn" {
+  description = "Secrets Manager ARN holding the AWS-managed master credentials. Read the password from here; it is not in the Terraform state."
+  value       = aws_db_instance.serving.master_user_secret[0].secret_arn
+}
+
+output "serving_db_security_group_id" {
+  description = "Security group guarding Postgres. Attach the pipeline and dashboard workloads to something this group's ingress rules allow."
+  value       = aws_security_group.serving.id
+}
