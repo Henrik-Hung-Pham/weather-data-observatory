@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   that fails when a declared dependency is not pinned in the lock.
 
 ### Security
+- The RDS master password is generated and rotated by AWS in Secrets
+  Manager (`manage_master_user_password`) instead of being passed in as a
+  Terraform variable, where it was written to the state file in plaintext.
 - Bumped the locked `gitpython` to 3.1.60 (PYSEC-2026-3982/3983/3984) and
   `anyio` to 4.14.2 (CVE-2026-63374/63349/64847).
 
@@ -26,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `deploy-staging` / `deploy-production` jobs no longer present themselves
   as deployments: they are renamed as placeholders, emit a warning annotation,
   and no longer record fictional deployments against GitHub Environments.
+- Terraform: remote S3 state with native locking, the serving layer moved
+  into a caller-supplied VPC behind its own security group, deletion
+  protection and final snapshots on by default, and lifecycle rules for the
+  data lake and both ECR repositories.
 - `bandit` SAST is now a blocking CI gate instead of advisory.
 - Removed the obsolete `version:` key from `docker-compose.yml` (ignored by
   Compose v2).
