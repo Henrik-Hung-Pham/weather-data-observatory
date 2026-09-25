@@ -1,0 +1,15 @@
+# Copy to backend.hcl and fill in, then:
+#
+#   terraform init -backend-config=backend.hcl
+#
+# Do NOT commit backend.hcl. The bucket and key differ per environment, which
+# is why versions.tf declares the backend without them.
+#
+# The state bucket is not managed by this configuration on purpose: a backend
+# cannot store the state that describes itself. Create it once, by hand or in
+# a separate bootstrap configuration, with versioning enabled -- versioning is
+# what lets you recover from a corrupted or truncated state push.
+
+bucket = "data-observatory-tfstate-CHANGE-ME"
+key    = "staging/terraform.tfstate"
+region = "us-east-1"

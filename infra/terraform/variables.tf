@@ -45,8 +45,60 @@ variable "db_username" {
   default     = "observatory"
 }
 
-variable "db_password" {
-  description = "Master password for the Postgres serving layer. Provide via TF_VAR_db_password; never commit it."
+# db_password is gone on purpose. The instance now uses
+# manage_master_user_password, so AWS generates and rotates the credential in
+# Secrets Manager and it never enters the Terraform state.
+
+variable "vpc_id" {
+  description = "VPC the serving layer's security group belongs to."
   type        = string
-  sensitive   = true
+}
+
+variable "private_subnet_ids" {
+  description = "Private subnet IDs for the serving layer's DB subnet group. At least two, in different availability zones."
+  type        = list(string)
+
+  validation {
+    condition     = length(var.private_subnet_ids) >= 2
+    error_message = "RDS requires subnets in at least two availability zones, even for a single-AZ instance."
+  }
+}
+
+variable "allowed_postgres_cidr_blocks" {
+  description = "CIDR blocks allowed to reach Postgres on 5432. Scope this to the subnets running the pipeline and dashboard."
+  type        = list(string)
+
+  validation {
+    condition     = !contains(var.allowed_postgres_cidr_blocks, "0.0.0.0/0")
+    error_message = "0.0.0.0/0 would expose the serving layer to the whole VPC peering surface; list the workload subnets instead."
+  }
+}
+
+variable "db_multi_az" {
+  description = "Run the serving layer across two availability zones. Costs roughly double; leave false outside production."
+  type        = bool
+  default     = false
+}
+
+variable "db_backup_retention_days" {
+  description = "Days of automated backups to retain (0 disables them)."
+  type        = number
+  default     = 7
+
+  validation {
+    condition     = var.db_backup_retention_days >= 1
+    error_message = "Backups must be retained for at least one day; 0 disables automated backups entirely."
+  }
+}
+
+variable "db_deletion_protection" {
+  description = "Refuse to delete the instance, and take a final snapshot when it is deleted. Set false only to tear an environment down deliberately."
+  type        = bool
+  default     = true
+}
+
+variable "db_performance_insights_enabled" {
+  description = "Enable RDS Performance Insights. Free for 7 days of retention on supported classes; not supported on db.t3.micro."
+  type        = bool
+  default     = false
 }
