@@ -110,3 +110,5 @@ infra/terraform/*.tfstate.*
 infra/terraform/*.tfvars
 !infra/terraform/*.tfvars.example
 infra/terraform/.terraform.lock.hcl
+# Filled-in backend config: names the state bucket and key per environment.
+infra/terraform/backend.hcl
