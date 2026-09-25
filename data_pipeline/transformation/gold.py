@@ -122,12 +122,18 @@ class GoldTransformer:
         return cast(list[dict[str, Any]], records.to_dict(orient="records"))
 
     def _daily_aggregates(self, df: pd.DataFrame) -> list[dict[str, Any]]:
-        """Create daily city-level aggregations."""
+        """Create daily city-level aggregations.
+
+        ``count`` is aggregated alongside the statistics so the result can fill
+        ``gold_weather_daily.observation_count``: an average over three
+        observations and an average over three hundred are not the same number,
+        and the row is misleading without the denominator.
+        """
         daily = (
             df.groupby(["city", "country", "date"])
             .agg(
                 {
-                    "temperature_celsius": ["mean", "min", "max", "std"],
+                    "temperature_celsius": ["mean", "min", "max", "std", "count"],
                     "humidity": ["mean", "min", "max"],
                     "pressure": "mean",
                     "wind_speed": ["mean", "max"],
@@ -141,6 +147,7 @@ class GoldTransformer:
         # Flatten column names
         daily.columns = ["_".join(col).strip() for col in daily.columns.values]
         daily = daily.reset_index()
+        daily = daily.rename(columns={"temperature_celsius_count": "observation_count"})
 
         # Convert date to string for JSON serialization
         daily["date"] = daily["date"].astype(str)

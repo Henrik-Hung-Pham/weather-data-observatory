@@ -278,6 +278,25 @@ class TestGoldTransformer:
         assert len(result["records"]) == 1
 
     @pytest.mark.unit
+    def test_daily_aggregates_carry_an_observation_count(self, sample_silver_data):
+        """Each rollup row says how many observations it averaged.
+
+        ``gold_weather_daily.observation_count`` has nowhere else to come
+        from, and a mean over three readings and a mean over three hundred
+        are not the same number.
+        """
+        transformer = GoldTransformer.__new__(GoldTransformer)
+        transformer.storage = None
+        transformer.database = None
+
+        daily = transformer.transform(sample_silver_data)["daily_aggregates"]
+
+        assert daily
+        for row in daily:
+            assert row["observation_count"] >= 1
+            assert "temperature_celsius_mean" in row
+
+    @pytest.mark.unit
     def test_transform_empty_data(self):
         """Test transformation with empty data."""
         transformer = GoldTransformer.__new__(GoldTransformer)
