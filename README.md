@@ -531,9 +531,10 @@ UI. See [`data_pipeline/orchestration/definitions.py`](data_pipeline/orchestrati
 - [ ] Support additional data sources (financial APIs, etc.)
 - [x] **Provision** AWS storage with Terraform — see [`infra/terraform/`](infra/terraform/)
 - [ ] **Deploy** to AWS — the Terraform provisions the data lake, two ECR
-      repositories and the RDS serving layer, but there is no compute
-      (ECS/Lambda/Batch), no VPC/security groups, no IAM roles and no remote
-      state backend. Nothing runs the pipeline in AWS yet
+      repositories, the serving layer's network placement and the RDS
+      instance, with remote state in S3. Still missing: compute
+      (ECS/Lambda/Batch) and IAM roles, and the VPC/subnets are inputs rather
+      than resources. Nothing runs the pipeline in AWS yet
 - [ ] Wire `freshness_rule` into a layer, or remove it
 - [ ] Replace the `deploy-staging` / `deploy-production` echo stubs in
       [`deploy.yml`](.github/workflows/deploy.yml) with a real deployment
