@@ -1,0 +1,156 @@
+# Prometheus alerting rules for the Data Observatory pipeline.
+#
+# The pipeline exports metrics (data_pipeline/metrics.py), but nothing alerted
+# on them: a gauge nobody watches is a dashboard, not monitoring. These rules
+# close that loop.
+#
+# Two properties of a Pushgateway-backed batch job shape every rule below:
+#
+#   1. Pushed metrics never go stale. The gateway serves the last sample
+#      forever, so "the pipeline stopped running" is invisible to any rule
+#      that watches run counters -- they just sit at their final values. The
+#      only honest signal is the *age* of the run timestamp. That is what
+#      PipelineRunMissing watches, and it is the one rule here that fires
+#      because of something that did not happen.
+#
+#   2. Each run pushes a fresh registry with PUT, which replaces every metric
+#      under the job's grouping key. Counters therefore do not accumulate
+#      across runs: observatory_pipeline_runs_total{status="failed"} reads as
+#      "the most recent run failed", not "how many runs ever failed". That is
+#      why these rules compare with 0 rather than using rate() or increase().
+#
+# Load with `rule_files: [alerts.yml]` in prometheus.yml, and check the syntax
+# with `promtool check rules infra/prometheus/alerts.yml`.
+
+groups:
+  - name: data-observatory-pipeline
+    interval: 1m
+    rules:
+      # --- Dead man's switch -------------------------------------------------
+      #
+      # The failure mode this repo has actually suffered is not a loud error,
+      # it is silence -- a scheduled job that quietly stops firing and is
+      # noticed days later. 3h is three missed runs at the default hourly
+      # DAGSTER_CRON. Raise it if you slow the schedule down, or this fires
+      # every night.
+      - alert: PipelineRunMissing
+        expr: time() - observatory_pipeline_last_run_timestamp_seconds > 10800
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No pipeline run for over 3 hours"
+          description: >-
+            The last run started
+            {{ $value | humanizeDuration }} ago. The scheduler is not firing,
+            the job is dying before it can push, or the Pushgateway is
+            unreachable from it. Check the orchestrator first, then the
+            pipeline logs for the run that should have happened.
+
+      # Distinct from the rule above: absent() fires when the series does not
+      # exist at all, which time()-based arithmetic cannot catch. That means a
+      # brand-new deployment that has never once pushed, or a wiped gateway.
+      - alert: PipelineMetricsAbsent
+        expr: absent(observatory_pipeline_last_run_timestamp_seconds)
+        for: 1h
+        labels:
+          severity: critical
+        annotations:
+          summary: "Pipeline metrics are absent from the Pushgateway"
+          description: >-
+            No run has ever pushed, or the gateway lost its state. Confirm
+            METRICS_ENABLED=true and PROMETHEUS_PUSHGATEWAY_URL are set
+            wherever the pipeline runs -- metrics are off by default.
+
+      # --- Run outcome -------------------------------------------------------
+      - alert: PipelineRunFailed
+        expr: observatory_pipeline_runs_total{status="failed"} > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "The most recent pipeline run failed"
+          description: >-
+            The run raised rather than completing. Bronze may have landed
+            without Silver or Gold. Check error_message on the run row in
+            pipeline_runs.
+
+      - alert: PipelineRunBlocked
+        expr: observatory_pipeline_runs_total{status="blocked"} > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "The most recent pipeline run was blocked by a quality gate"
+          description: >-
+            This is the gate working as designed -- bad data did not reach the
+            serving layer -- but the serving layer is now going stale. See
+            quality_gate_reason on the run row.
+
+      # --- Silent data loss --------------------------------------------------
+      #
+      # Loading nothing is only suspicious when something was ingested; a
+      # blocked run legitimately loads nothing, and PipelineRunBlocked already
+      # covers that. `on()` matches the two series on no labels at all, which
+      # is what lets a {stage="loaded"} series be compared with an
+      # {stage="ingested"} one.
+      - alert: PipelineLoadedNothingAfterIngest
+        expr: >-
+          observatory_pipeline_records{stage="loaded"} == 0
+          and on() observatory_pipeline_records{stage="ingested"} > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Records were ingested but none reached the serving layer"
+          description: >-
+            Ingestion produced rows and the load produced none, without the
+            run being blocked or failing. That is the silent-loss shape: the
+            dashboard keeps serving yesterday's data while the pipeline
+            reports success.
+
+      - alert: PipelineIngestedNothing
+        expr: observatory_pipeline_records{stage="ingested"} == 0
+        for: 2h
+        labels:
+          severity: warning
+        annotations:
+          summary: "The pipeline is ingesting no records"
+          description: >-
+            Every recent run fetched zero rows. Usually the upstream weather
+            API: an expired OPENWEATHER_API_KEY, a quota, or an outage.
+
+      # --- Data quality ------------------------------------------------------
+      - alert: QualityCriticalIssues
+        expr: observatory_quality_issues{severity="critical"} > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical quality issues in the {{ $labels.layer }} layer"
+          description: >-
+            {{ $value }} critical issue(s) found in {{ $labels.layer }}.
+            Critical severity always blocks, so the serving layer is not
+            taking this data.
+
+      # A gate that errored evaluated nothing. It is neither a pass nor a
+      # failure, and it is easy to mistake for a pass when reading a summary.
+      - alert: QualityGateErrored
+        expr: observatory_quality_gate_total{status="error"} > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "The {{ $labels.layer }} quality gate errored"
+          description: >-
+            The gate did not evaluate -- this is a bug in the gate or its
+            input, not a data-quality finding. Data may have passed unchecked.
+
+      # --- Performance -------------------------------------------------------
+      #
+      # A five-city run takes seconds. Ten minutes means retry storms against
+      # the weather API or a serving-layer database that is not answering.
+      - alert: PipelineRunSlow
+        expr: observatory_pipeline_duration_seconds > 600
+        labels:
+          severity: warning
+        annotations:
+          summary: "The most recent pipeline run took over 10 minutes"
+          description: >-
+            Run duration was {{ $value | humanizeDuration }}. Expected
+            seconds, not minutes, at the current city count.
