@@ -5,7 +5,7 @@
 # could sit on different base layers with different CVEs. The tag is kept
 # alongside the digest for readability, and Dependabot's docker ecosystem
 # (see .github/dependabot.yml) proposes the bump when the tag moves.
-FROM python:3.11-slim@sha256:9534e5a8e315485d4061ed659af0fd78a284c015f9b73661b41d6bab25604534 AS builder
+FROM python:3.12-slim@sha256:a0f57064cbdcd6285fa45f51237ab0b35ea8ebaed06a1f5973e89e19dfb86704 AS builder
 
 WORKDIR /app
 
@@ -29,7 +29,7 @@ COPY requirements.lock .
 RUN pip install --no-cache-dir --user --require-hashes -r requirements.lock
 
 # Production stage
-FROM python:3.11-slim@sha256:9534e5a8e315485d4061ed659af0fd78a284c015f9b73661b41d6bab25604534 AS production
+FROM python:3.12-slim@sha256:a0f57064cbdcd6285fa45f51237ab0b35ea8ebaed06a1f5973e89e19dfb86704 AS production
 
 WORKDIR /app
 
